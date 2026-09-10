@@ -29,6 +29,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # A tag that disagrees with the manifests ships an installer labelled
+      # with the wrong version. Fail here rather than after a 10-minute build.
+      - name: Check the tag matches the manifests
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          conf=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          pkg=$(node -p "require('./package.json').version")
+          cargo=$(grep -m1 '^version = ' src-tauri/Cargo.toml | cut -d'"' -f2)
+          echo "tag=$tag tauri.conf.json=$conf package.json=$pkg Cargo.toml=$cargo"
+          for name in conf pkg cargo; do
+            value="${!name}"
+            if [ "$value" != "$tag" ]; then
+              echo "::error::$name is $value but the tag is $tag - bump it before tagging"
+              exit 1
+            fi
+          done
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
