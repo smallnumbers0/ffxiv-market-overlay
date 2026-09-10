@@ -423,9 +423,18 @@ mod tests {
     fn scopes() -> MarketScopes {
         MarketScopes {
             worlds: vec![
-                World { id: 79, name: "Cactuar".into() },
-                World { id: 54, name: "Faerie".into() },
-                World { id: 39, name: "Ravana".into() },
+                World {
+                    id: 79,
+                    name: "Cactuar".into(),
+                },
+                World {
+                    id: 54,
+                    name: "Faerie".into(),
+                },
+                World {
+                    id: 39,
+                    name: "Ravana".into(),
+                },
             ],
             data_centers: vec![
                 DataCenter {
@@ -464,7 +473,6 @@ mod tests {
         assert_eq!(scopes().widen(""), None);
         assert_eq!(scopes().widen("Not A World"), None);
     }
-
 
     const SAMPLE: &str = r#"{
         "itemID": 4745,

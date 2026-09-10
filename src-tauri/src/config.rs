@@ -405,7 +405,10 @@ mod tests {
         let second = newest(&store.add_board(Some("Aether".into())).unwrap());
 
         let reloaded = ConfigStore::load(&path).get();
-        assert_eq!(ids(&reloaded), vec![FIRST_BOARD.to_string(), second.clone()]);
+        assert_eq!(
+            ids(&reloaded),
+            vec![FIRST_BOARD.to_string(), second.clone()]
+        );
         assert_eq!(scope_of(&reloaded, FIRST_BOARD).as_deref(), Some("Cactuar"));
         assert_eq!(scope_of(&reloaded, &second).as_deref(), Some("Aether"));
     }
@@ -427,7 +430,10 @@ mod tests {
         let (_dir, store) = store();
         let second = newest(&store.add_board(None).unwrap());
         let third = newest(&store.add_board(None).unwrap());
-        assert_eq!(ids(&store.get()), vec![FIRST_BOARD.to_string(), second, third]);
+        assert_eq!(
+            ids(&store.get()),
+            vec![FIRST_BOARD.to_string(), second, third]
+        );
     }
 
     #[test]
@@ -446,7 +452,10 @@ mod tests {
     #[test]
     fn the_last_board_cannot_be_closed() {
         let (_dir, store) = store();
-        assert_eq!(store.remove_board(FIRST_BOARD).unwrap_err().kind(), "invalid");
+        assert_eq!(
+            store.remove_board(FIRST_BOARD).unwrap_err().kind(),
+            "invalid"
+        );
         assert_eq!(store.get().boards.len(), 1);
     }
 
@@ -541,7 +550,10 @@ mod tests {
         // And the old keys are gone from disk once anything is written.
         store.set_hotkey("Alt+N").unwrap();
         let raw = std::fs::read_to_string(&path).unwrap();
-        assert!(!raw.contains("marketScope"), "legacy keys are not rewritten");
+        assert!(
+            !raw.contains("marketScope"),
+            "legacy keys are not rewritten"
+        );
         assert!(raw.contains("boards"));
     }
 
@@ -563,7 +575,9 @@ mod tests {
         assert!(!config.board(FIRST_BOARD).unwrap().scope_is_guess);
 
         // A later startup guess must not clobber it.
-        let config = store.set_guessed_board_scope(FIRST_BOARD, "Europe").unwrap();
+        let config = store
+            .set_guessed_board_scope(FIRST_BOARD, "Europe")
+            .unwrap();
         assert_eq!(scope_of(&config, FIRST_BOARD).as_deref(), Some("Cactuar"));
         assert!(!config.board(FIRST_BOARD).unwrap().scope_is_guess);
     }
@@ -572,7 +586,10 @@ mod tests {
     fn blank_scope_and_hotkey_are_rejected() {
         let (_dir, store) = store();
         assert_eq!(
-            store.set_board_scope(FIRST_BOARD, "   ").unwrap_err().kind(),
+            store
+                .set_board_scope(FIRST_BOARD, "   ")
+                .unwrap_err()
+                .kind(),
             "invalid"
         );
         assert_eq!(store.set_hotkey("").unwrap_err().kind(), "invalid");
