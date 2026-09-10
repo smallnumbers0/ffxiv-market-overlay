@@ -5,12 +5,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 use crate::cache::PriceCache;
-use crate::commands::Settings;
+use crate::commands::{BoardView, Settings};
 use crate::config::ConfigStore;
 use crate::db;
 use crate::error::{AppError, AppResult};
 use crate::search::SearchIndex;
-use crate::universalis::UniversalisClient;
+use crate::universalis::{MarketScopes, UniversalisClient};
 
 pub struct AppState {
     pub config: ConfigStore,
@@ -28,6 +28,10 @@ pub struct AppState {
     /// Shared with the `SyncGuard` handed out by `begin_sync`, so the flag is
     /// cleared however the sync ends.
     syncing: Arc<AtomicBool>,
+    /// The world/DC list, fetched at most once per session. Both the settings
+    /// picker and every new pane need it, and it only changes when Square Enix
+    /// adds a world.
+    scopes: tokio::sync::OnceCell<MarketScopes>,
 }
 
 impl AppState {
@@ -44,6 +48,7 @@ impl AppState {
             search: RwLock::new(SearchIndex::new(items)),
             hotkey_error: RwLock::new(None),
             syncing: Arc::new(AtomicBool::new(false)),
+            scopes: tokio::sync::OnceCell::new(),
         })
     }
 
@@ -80,18 +85,51 @@ impl AppState {
         self.search_index().map(|i| !i.is_empty()).unwrap_or(false)
     }
 
+    /// Everything the UI needs: every board and the state they share.
     pub fn settings(&self) -> AppResult<Settings> {
         // Stats come from the file rather than the in-memory index so the
         // panel can still report a catalog the index failed to load.
         let catalog = db::open_read_only(&self.catalog_path)
             .and_then(|conn| db::catalog_info(&conn))
             .unwrap_or_default();
+        let config = self.config.get();
+
         Ok(Settings {
-            config: self.config.get(),
+            can_add_board: config.boards.len() < crate::config::MAX_BOARDS,
+            boards: config
+                .boards
+                .into_iter()
+                .map(|board| BoardView {
+                    id: board.id,
+                    scope: board.scope,
+                    scope_is_guess: board.scope_is_guess,
+                })
+                .collect(),
+            hotkey: config.hotkey,
+            recent_item_ids: config.recent_item_ids,
             catalog,
             catalog_ready: self.catalog_ready(),
             hotkey_error: self.hotkey_error(),
         })
+    }
+
+    /// The world/DC list, fetched on first use and kept for the session.
+    ///
+    /// A failed fetch is not memoised, so opening the settings panel again
+    /// after the network comes back retries instead of serving the error.
+    pub async fn market_scopes(&self) -> AppResult<&MarketScopes> {
+        self.scopes
+            .get_or_try_init(|| async {
+                let (worlds, data_centers) = tokio::try_join!(
+                    self.universalis.fetch_worlds(),
+                    self.universalis.fetch_data_centers()
+                )?;
+                Ok(MarketScopes {
+                    worlds,
+                    data_centers,
+                })
+            })
+            .await
     }
 
     /// Claim the right to run a catalog sync. Returns an error if one is

@@ -11,6 +11,7 @@ import {
   toAppError,
   type AppError,
   type MarketScopes,
+  type Board,
   type Settings,
   type SyncProgress,
 } from "../lib/tauriApi";
@@ -18,12 +19,15 @@ import { count, syncedAt } from "../lib/format";
 
 interface SettingsPanelProps {
   settings: Settings;
+  /** The column whose board this panel edits. */
+  board: Board;
   onSettingsChange: (settings: Settings) => void;
   onCatalogRefreshed: () => void;
 }
 
 export function SettingsPanel({
   settings,
+  board,
   onSettingsChange,
   onCatalogRefreshed,
 }: SettingsPanelProps) {
@@ -101,7 +105,7 @@ export function SettingsPanel({
     <section className="settings">
       <Field
         label="Home world or data center"
-        hint="Prices are looked up for this market board."
+        hint="Sets this column only. The other columns keep their boards."
       >
         {scopesError ? (
           <p className="error-message">
@@ -110,9 +114,11 @@ export function SettingsPanel({
         ) : (
           <select
             className="input"
-            value={settings.marketScope ?? ""}
+            value={board.scope ?? ""}
             disabled={!scopes}
-            onChange={(event) => void run(() => setMarketScope(event.target.value))}
+            onChange={(event) =>
+              void run(() => setMarketScope(board.id, event.target.value))
+            }
           >
             <option value="" disabled>
               {scopes ? "Select a world..." : "Loading worlds..."}

@@ -234,6 +234,53 @@ pub struct DataCenter {
     pub worlds: Vec<u32>,
 }
 
+/// Every board a user can pick, as one bundle. Fetched once per session and
+/// memoised in `AppState` - the list only changes when Square Enix adds a
+/// world, and both the settings picker and new panes need it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarketScopes {
+    pub worlds: Vec<World>,
+    pub data_centers: Vec<DataCenter>,
+}
+
+impl MarketScopes {
+    /// The next-widest board containing `scope`: a world widens to its data
+    /// center, a data center to its region, and a region has nowhere to go.
+    ///
+    /// This is what makes a freshly opened pane immediately useful. The reason
+    /// to want a second one is nearly always to ask "is the rest of my DC
+    /// selling this cheaper?", so a new pane opens one level out from the one
+    /// it was opened from rather than duplicating it.
+    pub fn widen(&self, scope: &str) -> Option<String> {
+        let scope = scope.trim();
+        if scope.is_empty() {
+            return None;
+        }
+
+        if let Some(world) = self.worlds.iter().find(|world| same(&world.name, scope)) {
+            if let Some(dc) = self
+                .data_centers
+                .iter()
+                .find(|dc| dc.worlds.contains(&world.id))
+            {
+                return Some(dc.name.clone());
+            }
+        }
+
+        self.data_centers
+            .iter()
+            .find(|dc| same(&dc.name, scope))
+            .map(|dc| dc.region.clone())
+    }
+}
+
+/// Board names come from a dropdown built out of this same list, but a config
+/// file can be hand-edited, so compare the way Universalis itself does.
+fn same(a: &str, b: &str) -> bool {
+    a.trim().eq_ignore_ascii_case(b.trim())
+}
+
 // --- Wire shapes ------------------------------------------------------------
 
 #[derive(Debug, Clone, Deserialize)]
@@ -372,6 +419,52 @@ pub fn now_millis() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn scopes() -> MarketScopes {
+        MarketScopes {
+            worlds: vec![
+                World { id: 79, name: "Cactuar".into() },
+                World { id: 54, name: "Faerie".into() },
+                World { id: 39, name: "Ravana".into() },
+            ],
+            data_centers: vec![
+                DataCenter {
+                    name: "Aether".into(),
+                    region: "North-America".into(),
+                    worlds: vec![79, 54],
+                },
+                DataCenter {
+                    name: "Elemental".into(),
+                    region: "Japan".into(),
+                    worlds: vec![39],
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn a_world_widens_to_its_data_center() {
+        assert_eq!(scopes().widen("Cactuar").as_deref(), Some("Aether"));
+        assert_eq!(scopes().widen("Ravana").as_deref(), Some("Elemental"));
+    }
+
+    #[test]
+    fn a_data_center_widens_to_its_region() {
+        assert_eq!(scopes().widen("Aether").as_deref(), Some("North-America"));
+    }
+
+    #[test]
+    fn a_region_has_nowhere_wider_to_go() {
+        assert_eq!(scopes().widen("North-America"), None);
+    }
+
+    #[test]
+    fn widening_tolerates_casing_and_blanks() {
+        assert_eq!(scopes().widen(" cactuar ").as_deref(), Some("Aether"));
+        assert_eq!(scopes().widen(""), None);
+        assert_eq!(scopes().widen("Not A World"), None);
+    }
+
 
     const SAMPLE: &str = r#"{
         "itemID": 4745,

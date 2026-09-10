@@ -30,18 +30,21 @@ your game window.
 - **World or data center** - query a single world, a whole data center, or an
   entire region. Defaults to your region on first launch so the app is useful
   before you configure anything.
+- **Side-by-side boards** - compare several market boards at once, each its own
+  column in the same window. Search once and every board prices the same item
+  together, so "is the rest of my data center cheaper?" is a glance rather than
+  a second lookup. Adding a column lands on the board one step wider than the
+  last, and the cheapest board on screen is flagged. Up to four, remembered
+  between launches.
+- **HQ and NQ read separately** - the five cheapest HQ listings sit above the
+  five cheapest NQ, because they are effectively two different markets for the
+  same item and one price-sorted list buries whichever you came to check.
 - **Global hotkey overlay** - `Ctrl+Shift+M` by default (`Cmd+Shift+M` on
   macOS), configurable. Shows over the game, hides completely when toggled off.
 - **Item icons** - rendered from XIVAPI's asset service.
 - **Recent items** - the last dozen items you looked at, one keystroke away.
 - **Refresh item database** - re-sync the catalog in-app after a game patch
   adds new items.
-
-Planned, not built yet:
-
-- Click-through mode when the overlay is idle.
-- A multi-item watchlist view. (`UniversalisClient::fetch_prices` already
-  implements the batched call it needs; the view itself is not built.)
 
 ---
 
@@ -72,7 +75,7 @@ For people who just want to run it. No build tools, no configuration, no
 account.
 
 1. Go to the project's **[Releases]** page on GitHub.
-2. Download `FFXIV.Market.Overlay_x.y.z_x64-setup.exe`.
+2. Download **[FFXIV Market Overlay_0.1.0_x64-setup.exe]**.
 3. Run it.
 
    Windows will show **"Windows protected your PC"**, because the installer is
@@ -123,7 +126,12 @@ here makes it substantially more useful.
    owns that combination, the app says so and keeps the previous hotkey rather
    than leaving you with none.
 
-3. **Set FFXIV to borderless windowed mode**, if you have not already. An
+3. **Add a second board**, if you buy and sell across your data center. Press
+   **+** on the board strip. The new column arrives already set to your data
+   center, so one column tells you what things cost at home and the one beside
+   it tells you whether it is worth travelling.
+
+4. **Set FFXIV to borderless windowed mode**, if you have not already. An
    always-on-top window cannot draw over exclusive fullscreen.
 
 ---
@@ -136,26 +144,37 @@ here makes it substantially more useful.
   Aim Materia X_, `grade8tinc` finds the Grade 8 Tinctures. Results are ranked
   by how well they match, with earlier and shorter matches first.
 - **Move** through results with the up and down arrow keys; **open** the
-  highlighted item with `Enter`, or just click it.
-- **Read the prices.** The panel shows, for your selected world, data center,
-  or region:
-  - **Cheapest NQ / HQ** - the lowest current asking price per unit.
-  - **Avg NQ / HQ** - Universalis's current average price.
+  highlighted item with `Enter`, or just click it. The search box stays on
+  screen while you read prices, so the next item is one query away - type over
+  it and the results take the comparison's place until you pick something.
+- **Read the prices.** Each board gets a column, left to right, showing:
+  - **HQ / NQ** - the lowest current asking price of each quality.
   - **Sales** - sale velocity, in units per day.
-  - **For sale** - how many units are listed.
-  - **Cheapest listings** - individual listings, price per unit, quantity,
-    total, and which world each is on.
-  - **Recent sales** - what the item actually sold for, and when.
-  - The footer shows how long ago Universalis last received an upload for that
-    item, and how fresh the numbers on screen are.
-- **Refresh** a single item's prices with the circular arrow in the panel
-  header. Prices are cached in memory for three minutes, so re-opening an item
-  you just looked at is instant; refresh forces a new fetch.
-- **`Esc`** steps back one level at a time - price panel to results, results to
-  an empty box, empty box to hidden. One key gets you back to the game from
+  - **Cheapest HQ** and **Cheapest NQ** - the five cheapest listings of each
+    quality, with price per unit, quantity, and which world each is on. The HQ
+    block is omitted for items that have no HQ version.
+  - **cheapest** - flagged on whichever board has the lowest asking price on
+    screen. Ties are not flagged: there would be nothing to choose between.
+- **Refresh** every board with the circular arrow in the panel header. Prices
+  are cached in memory for three minutes, so re-opening an item you just looked
+  at is instant; refresh forces a new fetch for every column.
+- **`Esc`** steps back one level at a time - a half-typed query first, then the
+  open item, then the overlay itself. One key gets you back to the game from
   anywhere.
 - **Move the overlay** by dragging its title bar. Its position and size are
   remembered and restored the next time you show it.
+- **Add a board** with **+**. It opens on the board one step out from the last
+  column - a world opens its data center, a data center opens its region - and
+  you can point it anywhere afterwards. Boards are independent: changing one
+  never touches another.
+- **Re-point a board** by clicking its name in the strip, which opens settings
+  for that column.
+- **Close a board** with the **x** on its chip. The last one has none: an
+  overlay with no board to show is just an empty window. The boards you leave
+  open come back the next time you start the app.
+- **Three or more boards** scroll sideways rather than squeezing below a
+  readable width. Two fit comfortably at the default window size; widen the
+  window for more.
 - **Quit** from the system tray icon. Closing the window only hides it, so the
   hotkey keeps working.
 - **If the hotkey doesn't register** (another app already owns that
@@ -171,118 +190,6 @@ single transaction - if it fails partway, your existing catalog is untouched.
 
 You can also just install the next release, which ships a catalog built at
 release time.
-
----
-
-## Building from source
-
-### Prerequisites
-
-- **Rust** (stable) - <https://rustup.rs>
-- **Node.js** 18 or newer, with npm
-- **Platform build tools for Tauri 2** - see
-  <https://tauri.app/start/prerequisites/>:
-  - Windows: Microsoft C++ Build Tools and the WebView2 runtime
-  - macOS: Xcode Command Line Tools
-  - Linux: `webkit2gtk`, `libayatana-appindicator`, and friends
-
-The Tauri CLI comes from `package.json`; there is nothing to install globally.
-
-### Build and run
-
-```bash
-git clone <repository-url>
-cd ffxiv-market-overlay
-npm install
-
-# Generate the item catalog. Required on a fresh clone: items.db is a build
-# artifact and is not committed, so search has no data until this runs.
-# Takes about a minute and writes src-tauri/resources/items.db.
-npm run sync-catalog
-
-npm run tauri dev      # development, with frontend hot reload
-npm run tauri build    # installers in src-tauri/target/release/bundle/
-```
-
-`npm run sync-catalog` accepts an optional output path:
-`npm run sync-catalog -- /tmp/items.db`.
-
-A clone will compile without running the sync first - the build script drops an
-empty placeholder catalog in so the crate builds - but the app will open on its
-settings panel and tell you to sync, because an empty catalog is not a usable
-one.
-
-### Tests
-
-```bash
-npm test                      # frontend logic (vitest)
-npx tsc --noEmit              # TypeScript type check
-cd src-tauri && cargo test    # backend
-cd src-tauri && cargo clippy --all-targets -- -D warnings
-```
-
-CI runs all of these on Linux and Windows for every push and pull request.
-
-The Rust tests cover catalog storage, fuzzy ranking, price parsing (including
-against a response captured verbatim from the live Universalis API), the TTL
-cache, settings persistence, and app state. They do not hit the network. The
-frontend tests cover price/time formatting and the time-zone-to-region mapping
-that drives the first-launch default.
-
-`src-tauri/tests/real_catalog.rs` additionally checks ranking and search speed
-against the real generated catalog; those tests skip themselves if you haven't
-run `npm run sync-catalog`.
-
-### Layout
-
-```
-src-tauri/src/
-  lib.rs           app wiring: window, tray, hotkey, catalog bootstrap
-  commands.rs      every #[tauri::command] the frontend can call
-  state.rs         shared state handed to those commands
-  db.rs            SQLite schema, load, atomic bulk replace
-  search.rs        in-memory fuzzy matching (nucleo)
-  universalis.rs   Universalis HTTP client and price types
-  xivapi_sync.rs   catalog sync logic
-  cache.rs         in-memory TTL price cache
-  config.rs        settings persistence
-  hotkey.rs        global shortcut and show/hide
-  bin/sync_catalog.rs   the build-time catalog generator
-src/
-  App.tsx          screen orchestration and keyboard handling
-  components/      SearchBox, ResultsList, PricePanel, SettingsPanel, TitleBar
-  lib/tauriApi.ts  typed invoke() wrappers - the only file that calls invoke
-  lib/format.ts    display formatting
-  lib/region.ts    time zone -> Universalis region, for the first-launch default
-```
-
-### Releasing
-
-Installers are built by GitHub Actions, not by hand - `.github/workflows/release.yml`
-runs on a `windows-latest` runner, so the Windows binary is built on Windows.
-
-```bash
-npm version patch      # or minor / major - writes package.json and tags
-git push --follow-tags
-```
-
-The workflow type-checks, runs both test suites, generates a fresh `items.db`,
-refuses to continue if that catalog looks truncated, builds the NSIS installer,
-and attaches it to a **draft** GitHub Release for you to review and publish.
-Run the workflow manually from the Actions tab to get an installer as a
-workflow artifact without publishing anything.
-
-Bump the version in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` to
-match before tagging.
-
-**Code signing** is not set up: releases are unsigned, so users see a
-SmartScreen warning once. This is the norm for community FFXIV tools. To
-change that, add a certificate and set `bundle.windows.certificateThumbprint`,
-`digestAlgorithm`, and `timestampUrl` in `tauri.conf.json`, or point
-`bundle.windows.signCommand` at a signing service - the rest of the pipeline
-needs no changes.
-
----
 
 ## Troubleshooting
 
@@ -325,7 +232,24 @@ deliberately excluded.
 **A price says "no data".**
 Universalis is crowd-sourced: it only knows what players' market board visits
 have uploaded. Rarely traded items on quiet worlds genuinely have no data.
-Try selecting the whole data center instead of a single world.
+Try selecting the whole data center instead of a single world - or press **+**
+to add a data-center column beside the one you have, and keep both.
+
+**A new column opened on the same board as the last one.**
+A new board is set one step out, which needs Universalis's world list. If that
+lookup is slow or unavailable, the column opens on the current board instead
+rather than making you wait. Click its name in the strip to pick the board you
+want; it will be remembered.
+
+**A column shows no world names.**
+That board is a single world, so every listing would name the same one -
+Universalis does not send a world on a single-world query. Point the column at
+a data center or region and the world each listing sits on appears, which is
+the whole point of a wide column: it tells you where to travel.
+
+**The listings show no total.**
+Side-by-side columns are narrow, and total is price times quantity - both of
+which are already on the row.
 
 ---
 

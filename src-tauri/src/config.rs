@@ -14,32 +14,96 @@ use crate::error::{AppError, AppResult};
 pub const DEFAULT_HOTKEY: &str = "CmdOrControl+Shift+M";
 const MAX_RECENT_ITEMS: usize = 12;
 
+/// Id of the board every config starts with.
+pub const FIRST_BOARD: &str = "board-1";
+/// Prefix for generated board ids.
+const BOARD_PREFIX: &str = "board-";
+
+/// Ceiling on open boards. Every board is a column in the same window, so
+/// this is bounded by pixels rather than taste: past four, columns are too
+/// narrow to read even with the strip scrolling.
+pub const MAX_BOARDS: usize = 4;
+
+/// One market board the user is watching.
+///
+/// Every board is shown at once, as its own column beside the others. There is
+/// no "current" board: you pick an item once and read every board's price for
+/// it side by side, which is the whole reason for having more than one.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct BoardConfig {
+    pub id: String,
+    /// World, data center, or region name passed straight to Universalis.
+    /// `None` only until first launch guesses a region from the system clock.
+    pub scope: Option<String>,
+    /// True while `scope` is a first-launch guess the user has never
+    /// confirmed. Drives the "these are region-wide prices, pick your world"
+    /// nudge, and is cleared the moment they choose one themselves.
+    pub scope_is_guess: bool,
+}
+
+impl Default for BoardConfig {
+    fn default() -> Self {
+        Self::new(FIRST_BOARD)
+    }
+}
+
+impl BoardConfig {
+    pub fn new(id: &str) -> Self {
+        Self {
+            id: id.to_string(),
+            scope: None,
+            scope_is_guess: false,
+        }
+    }
+
+    /// The scope to query, or an error explaining that setup isn't done.
+    pub fn require_scope(&self) -> AppResult<&str> {
+        self.scope
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                AppError::Invalid("pick your home world or data center in settings first".into())
+            })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppConfig {
-    /// World, data center, or region name passed straight to Universalis.
-    /// `None` only until first launch guesses a region from the system clock.
-    pub market_scope: Option<String>,
-    /// True while `market_scope` is a first-launch guess the user has never
-    /// confirmed. Drives the "these are region-wide prices, pick your world"
-    /// nudge, and is cleared the moment they choose one themselves.
-    pub market_scope_is_guess: bool,
+    /// Boards being compared, left to right. Never empty - see `migrate`.
+    ///
+    /// `tabs` is the name an earlier build wrote, kept as an alias so those
+    /// configs keep their boards.
+    #[serde(alias = "tabs")]
+    pub boards: Vec<BoardConfig>,
     /// Accelerator string for the show/hide hotkey.
     pub hotkey: String,
     /// Last overlay position/size, restored on show.
     pub window: Option<WindowState>,
-    /// Most recently viewed items, newest first.
+    /// Most recently viewed items, newest first. Shared across boards - these
+    /// are items the user looked at, not a property of any one board.
     pub recent_item_ids: Vec<u32>,
+
+    // --- Pre-comparison fields -------------------------------------------
+    // Read so upgrading keeps the user's world, folded into `boards` by
+    // `migrate`, and never written back out.
+    #[serde(rename = "marketScope", skip_serializing)]
+    legacy_scope: Option<String>,
+    #[serde(rename = "marketScopeIsGuess", skip_serializing)]
+    legacy_scope_is_guess: bool,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            market_scope: None,
-            market_scope_is_guess: false,
+            boards: vec![BoardConfig::new(FIRST_BOARD)],
             hotkey: DEFAULT_HOTKEY.to_string(),
             window: None,
             recent_item_ids: Vec::new(),
+            legacy_scope: None,
+            legacy_scope_is_guess: false,
         }
     }
 }
@@ -54,15 +118,45 @@ pub struct WindowState {
 }
 
 impl AppConfig {
-    /// The scope to query, or an error explaining that setup isn't done.
-    pub fn require_scope(&self) -> AppResult<&str> {
-        self.market_scope
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                AppError::Invalid("pick your home world or data center in settings first".into())
-            })
+    pub fn board(&self, id: &str) -> Option<&BoardConfig> {
+        self.boards.iter().find(|board| board.id == id)
+    }
+
+    /// The board a request names. An id with no board behind it means the UI
+    /// is working from a stale copy of the board list.
+    pub fn require_board(&self, id: &str) -> AppResult<&BoardConfig> {
+        self.board(id)
+            .ok_or_else(|| AppError::Invalid(format!("that board is gone: '{id}'")))
+    }
+
+    /// Fold any pre-comparison fields into the board list and guarantee the
+    /// invariant every other method leans on: there is always a board.
+    fn migrate(&mut self) {
+        if self.boards.is_empty() {
+            self.boards.push(BoardConfig::new(FIRST_BOARD));
+        }
+        if let Some(scope) = self.legacy_scope.take() {
+            // Only the first board, and only if it has nothing of its own: a
+            // config already carrying boards was written by this version.
+            let first = &mut self.boards[0];
+            if first.scope.is_none() {
+                first.scope = Some(scope);
+                first.scope_is_guess = self.legacy_scope_is_guess;
+            }
+        }
+        self.legacy_scope = None;
+        self.legacy_scope_is_guess = false;
+
+        // A hand-edited config must not be able to open a hundred columns.
+        self.boards.truncate(MAX_BOARDS);
+    }
+
+    /// An id no open board is using, for the next one.
+    fn free_board_id(&self) -> String {
+        (1..)
+            .map(|n| format!("{BOARD_PREFIX}{n}"))
+            .find(|id| self.board(id).is_none())
+            .expect("an unbounded search always finds a free id")
     }
 
     fn push_recent(&mut self, item_id: u32) {
@@ -83,10 +177,11 @@ impl ConfigStore {
     /// Load from `path`, falling back to defaults when the file is absent or
     /// unreadable. A corrupt config must never stop the app from starting.
     pub fn load(path: &Path) -> Self {
-        let config = std::fs::read_to_string(path)
+        let mut config = std::fs::read_to_string(path)
             .ok()
             .and_then(|raw| serde_json::from_str::<AppConfig>(&raw).ok())
             .unwrap_or_default();
+        config.migrate();
         Self {
             path: path.to_path_buf(),
             config: RwLock::new(config),
@@ -118,17 +213,25 @@ impl ConfigStore {
         Ok(updated)
     }
 
-    pub fn set_market_scope(&self, scope: &str) -> AppResult<AppConfig> {
-        let scope = scope.trim();
-        if scope.is_empty() {
-            return Err(AppError::Invalid(
-                "world or data center cannot be empty".into(),
-            ));
-        }
-        let scope = scope.to_string();
+    /// Mutate one board and persist. Errors rather than silently doing nothing
+    /// when the board is gone, so a failed world change is visible in the UI.
+    fn update_board<F>(&self, id: &str, mutate: F) -> AppResult<AppConfig>
+    where
+        F: FnOnce(&mut BoardConfig),
+    {
+        self.get().require_board(id)?;
         self.update(|config| {
-            config.market_scope = Some(scope);
-            config.market_scope_is_guess = false;
+            if let Some(board) = config.boards.iter_mut().find(|board| board.id == id) {
+                mutate(board);
+            }
+        })
+    }
+
+    pub fn set_board_scope(&self, id: &str, scope: &str) -> AppResult<AppConfig> {
+        let scope = validate_scope(scope)?;
+        self.update_board(id, |board| {
+            board.scope = Some(scope);
+            board.scope_is_guess = false;
         })
     }
 
@@ -136,21 +239,44 @@ impl ConfigStore {
     ///
     /// Returning the config unchanged when a scope already exists is what
     /// makes this safe to call on every startup.
-    pub fn set_guessed_market_scope(&self, scope: &str) -> AppResult<AppConfig> {
-        let scope = scope.trim();
-        if scope.is_empty() {
-            return Err(AppError::Invalid(
-                "world or data center cannot be empty".into(),
-            ));
-        }
-        if self.get().market_scope.is_some() {
+    pub fn set_guessed_board_scope(&self, id: &str, scope: &str) -> AppResult<AppConfig> {
+        let scope = validate_scope(scope)?;
+        if self.get().require_board(id)?.scope.is_some() {
             return Ok(self.get());
         }
-        let scope = scope.to_string();
-        self.update(|config| {
-            config.market_scope = Some(scope);
-            config.market_scope_is_guess = true;
+        self.update_board(id, |board| {
+            board.scope = Some(scope);
+            board.scope_is_guess = true;
         })
+    }
+
+    /// Add a board as a new right-hand column.
+    pub fn add_board(&self, scope: Option<String>) -> AppResult<AppConfig> {
+        let config = self.get();
+        if config.boards.len() >= MAX_BOARDS {
+            return Err(AppError::Invalid(format!(
+                "{MAX_BOARDS} boards is the maximum - close one first"
+            )));
+        }
+        let board = BoardConfig {
+            id: config.free_board_id(),
+            scope,
+            scope_is_guess: false,
+        };
+        self.update(|config| config.boards.push(board))
+    }
+
+    /// Close a board's column. The last one stays: an overlay with no board
+    /// to show is just an empty window.
+    pub fn remove_board(&self, id: &str) -> AppResult<AppConfig> {
+        let config = self.get();
+        config.require_board(id)?;
+        if config.boards.len() == 1 {
+            return Err(AppError::Invalid(
+                "that's the only board - press Esc or the hotkey to hide the overlay".into(),
+            ));
+        }
+        self.update(|config| config.boards.retain(|board| board.id != id))
     }
 
     pub fn set_hotkey(&self, hotkey: &str) -> AppResult<AppConfig> {
@@ -192,6 +318,18 @@ impl ConfigStore {
     }
 }
 
+/// Worlds, data centers and regions all arrive here as free text from the
+/// picker; the only rule is that a board name has to be something.
+fn validate_scope(scope: &str) -> AppResult<String> {
+    let scope = scope.trim();
+    if scope.is_empty() {
+        return Err(AppError::Invalid(
+            "world or data center cannot be empty".into(),
+        ));
+    }
+    Ok(scope.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,11 +341,25 @@ mod tests {
         (dir, store)
     }
 
+    fn scope_of(config: &AppConfig, id: &str) -> Option<String> {
+        config.board(id).and_then(|board| board.scope.clone())
+    }
+
+    fn ids(config: &AppConfig) -> Vec<String> {
+        config.boards.iter().map(|b| b.id.clone()).collect()
+    }
+
+    /// The id `add_board` just handed out - always the new last column.
+    fn newest(config: &AppConfig) -> String {
+        config.boards.last().unwrap().id.clone()
+    }
+
     #[test]
     fn defaults_when_no_file_exists() {
         let (_dir, store) = store();
         let config = store.get();
-        assert_eq!(config.market_scope, None);
+        assert_eq!(config.boards.len(), 1, "there is always a board");
+        assert_eq!(scope_of(&config, FIRST_BOARD), None);
         assert_eq!(config.hotkey, DEFAULT_HOTKEY);
         assert!(config.recent_item_ids.is_empty());
     }
@@ -218,7 +370,7 @@ mod tests {
         let path = dir.path().join("config.json");
 
         let store = ConfigStore::load(&path);
-        store.set_market_scope("Cactuar").unwrap();
+        store.set_board_scope(FIRST_BOARD, "Cactuar").unwrap();
         store.set_hotkey("Alt+M").unwrap();
         store
             .set_window(WindowState {
@@ -230,7 +382,7 @@ mod tests {
             .unwrap();
 
         let reloaded = ConfigStore::load(&path).get();
-        assert_eq!(reloaded.market_scope.as_deref(), Some("Cactuar"));
+        assert_eq!(scope_of(&reloaded, FIRST_BOARD).as_deref(), Some("Cactuar"));
         assert_eq!(reloaded.hotkey, "Alt+M");
         assert_eq!(
             reloaded.window,
@@ -240,6 +392,83 @@ mod tests {
                 width: 500,
                 height: 600
             })
+        );
+    }
+
+    #[test]
+    fn boards_reopen_in_order_on_the_next_launch() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+
+        let store = ConfigStore::load(&path);
+        store.set_board_scope(FIRST_BOARD, "Cactuar").unwrap();
+        let second = newest(&store.add_board(Some("Aether".into())).unwrap());
+
+        let reloaded = ConfigStore::load(&path).get();
+        assert_eq!(ids(&reloaded), vec![FIRST_BOARD.to_string(), second.clone()]);
+        assert_eq!(scope_of(&reloaded, FIRST_BOARD).as_deref(), Some("Cactuar"));
+        assert_eq!(scope_of(&reloaded, &second).as_deref(), Some("Aether"));
+    }
+
+    #[test]
+    fn boards_hold_scopes_independently() {
+        let (_dir, store) = store();
+        store.set_board_scope(FIRST_BOARD, "Cactuar").unwrap();
+        let second = newest(&store.add_board(Some("Aether".into())).unwrap());
+
+        // The whole point of a second column: moving one leaves the other.
+        let config = store.set_board_scope(&second, "Primal").unwrap();
+        assert_eq!(scope_of(&config, FIRST_BOARD).as_deref(), Some("Cactuar"));
+        assert_eq!(scope_of(&config, &second).as_deref(), Some("Primal"));
+    }
+
+    #[test]
+    fn a_new_board_becomes_the_right_hand_column() {
+        let (_dir, store) = store();
+        let second = newest(&store.add_board(None).unwrap());
+        let third = newest(&store.add_board(None).unwrap());
+        assert_eq!(ids(&store.get()), vec![FIRST_BOARD.to_string(), second, third]);
+    }
+
+    #[test]
+    fn ids_are_reused_once_a_board_closes() {
+        let (_dir, store) = store();
+        let second = newest(&store.add_board(None).unwrap());
+        let third = newest(&store.add_board(None).unwrap());
+        assert_ne!(second, third);
+
+        store.remove_board(&second).unwrap();
+        let fourth = newest(&store.add_board(None).unwrap());
+        assert_eq!(fourth, second, "the freed id comes back");
+        assert_eq!(store.get().boards.len(), 3);
+    }
+
+    #[test]
+    fn the_last_board_cannot_be_closed() {
+        let (_dir, store) = store();
+        assert_eq!(store.remove_board(FIRST_BOARD).unwrap_err().kind(), "invalid");
+        assert_eq!(store.get().boards.len(), 1);
+    }
+
+    #[test]
+    fn boards_are_capped() {
+        let (_dir, store) = store();
+        for _ in 1..MAX_BOARDS {
+            store.add_board(None).unwrap();
+        }
+        assert_eq!(store.get().boards.len(), MAX_BOARDS);
+        assert_eq!(store.add_board(None).unwrap_err().kind(), "invalid");
+    }
+
+    #[test]
+    fn changes_to_a_missing_board_are_an_error() {
+        let (_dir, store) = store();
+        assert_eq!(
+            store
+                .set_board_scope("board-9", "Cactuar")
+                .unwrap_err()
+                .kind(),
+            "invalid"
         );
     }
 
@@ -255,44 +484,103 @@ mod tests {
     fn unknown_and_missing_fields_are_tolerated() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.json");
-        std::fs::write(&path, r#"{"marketScope":"Aether","futureField":42}"#).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"boards":[{"id":"board-1","scope":"Aether"}],"futureField":42}"#,
+        )
+        .unwrap();
         let config = ConfigStore::load(&path).get();
-        assert_eq!(config.market_scope.as_deref(), Some("Aether"));
+        assert_eq!(scope_of(&config, FIRST_BOARD).as_deref(), Some("Aether"));
         assert_eq!(
             config.hotkey, DEFAULT_HOTKEY,
             "missing field takes the default"
         );
     }
 
+    /// The build that shipped tabs wrote this key. Those users should keep
+    /// their boards rather than silently dropping back to one.
+    #[test]
+    fn boards_saved_under_the_old_tabs_key_are_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::write(
+            &path,
+            r#"{"tabs":[{"id":"tab-1","scope":"Cactuar"},{"id":"tab-2","scope":"Aether"}],
+                "activeTab":"tab-2"}"#,
+        )
+        .unwrap();
+        let config = ConfigStore::load(&path).get();
+        assert_eq!(config.boards.len(), 2);
+        assert_eq!(scope_of(&config, "tab-1").as_deref(), Some("Cactuar"));
+        assert_eq!(scope_of(&config, "tab-2").as_deref(), Some("Aether"));
+    }
+
+    /// Upgrading from the single-board version must not dump the user back on
+    /// the setup screen.
+    #[test]
+    fn a_pre_comparison_config_is_migrated() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::write(
+            &path,
+            r#"{"marketScope":"Cactuar","marketScopeIsGuess":false,
+                "hotkey":"Alt+M","recentItemIds":[5,6],
+                "window":{"x":1,"y":2,"width":300,"height":400}}"#,
+        )
+        .unwrap();
+
+        let store = ConfigStore::load(&path);
+        let config = store.get();
+        let board = config.board(FIRST_BOARD).unwrap();
+        assert_eq!(board.scope.as_deref(), Some("Cactuar"));
+        assert!(!board.scope_is_guess);
+        assert_eq!(config.window.unwrap().width, 300);
+        assert_eq!(config.hotkey, "Alt+M");
+        assert_eq!(config.recent_item_ids, vec![5, 6]);
+
+        // And the old keys are gone from disk once anything is written.
+        store.set_hotkey("Alt+N").unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("marketScope"), "legacy keys are not rewritten");
+        assert!(raw.contains("boards"));
+    }
+
     #[test]
     fn a_guessed_scope_never_overwrites_a_real_choice() {
         let (_dir, store) = store();
 
-        let config = store.set_guessed_market_scope("North-America").unwrap();
-        assert_eq!(config.market_scope.as_deref(), Some("North-America"));
-        assert!(config.market_scope_is_guess);
+        let config = store
+            .set_guessed_board_scope(FIRST_BOARD, "North-America")
+            .unwrap();
+        assert_eq!(
+            scope_of(&config, FIRST_BOARD).as_deref(),
+            Some("North-America")
+        );
+        assert!(config.board(FIRST_BOARD).unwrap().scope_is_guess);
 
         // The user picks their own world - the guess flag goes away.
-        let config = store.set_market_scope("Cactuar").unwrap();
-        assert!(!config.market_scope_is_guess);
+        let config = store.set_board_scope(FIRST_BOARD, "Cactuar").unwrap();
+        assert!(!config.board(FIRST_BOARD).unwrap().scope_is_guess);
 
         // A later startup guess must not clobber it.
-        let config = store.set_guessed_market_scope("Europe").unwrap();
-        assert_eq!(config.market_scope.as_deref(), Some("Cactuar"));
-        assert!(!config.market_scope_is_guess);
+        let config = store.set_guessed_board_scope(FIRST_BOARD, "Europe").unwrap();
+        assert_eq!(scope_of(&config, FIRST_BOARD).as_deref(), Some("Cactuar"));
+        assert!(!config.board(FIRST_BOARD).unwrap().scope_is_guess);
     }
 
     #[test]
     fn blank_scope_and_hotkey_are_rejected() {
         let (_dir, store) = store();
-        assert_eq!(store.set_market_scope("   ").unwrap_err().kind(), "invalid");
+        assert_eq!(
+            store.set_board_scope(FIRST_BOARD, "   ").unwrap_err().kind(),
+            "invalid"
+        );
         assert_eq!(store.set_hotkey("").unwrap_err().kind(), "invalid");
     }
 
     #[test]
     fn require_scope_explains_what_to_do() {
-        let config = AppConfig::default();
-        let err = config.require_scope().unwrap_err();
+        let err = BoardConfig::new(FIRST_BOARD).require_scope().unwrap_err();
         assert!(err.to_string().contains("settings"));
     }
 

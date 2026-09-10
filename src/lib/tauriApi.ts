@@ -83,13 +83,23 @@ export interface CatalogInfo {
   lastSyncedGameVersion: string | null;
 }
 
+/** One board being compared - the strip draws it, and so does its column. */
+export interface Board {
+  id: string;
+  /** This board's world, data center, or region. */
+  scope: string | null;
+  /** True while `scope` is an unconfirmed first-launch guess. */
+  scopeIsGuess: boolean;
+}
+
+/** Everything the UI needs, in one round trip. */
 export interface Settings {
-  marketScope: string | null;
+  /** Boards being compared, left to right - one column each. */
+  boards: Board[];
+  /** False once the board limit is reached - the "+" goes disabled. */
+  canAddBoard: boolean;
   hotkey: string;
-  window: { x: number; y: number; width: number; height: number } | null;
   recentItemIds: number[];
-  /** True while `marketScope` is an unconfirmed first-launch guess. */
-  marketScopeIsGuess: boolean;
   catalog: CatalogInfo;
   catalogReady: boolean;
   /** Why the global hotkey isn't active, or `null` when it is. */
@@ -142,17 +152,17 @@ export function toAppError(error: unknown): AppError {
 export const searchItems = (query: string, limit?: number) =>
   invoke<SearchResult[]>("search_items", { query, limit });
 
-export const getPrice = (itemId: number, refresh = false) =>
-  invoke<PriceData>("get_price", { itemId, refresh });
+export const getPrice = (board: string, itemId: number, refresh = false) =>
+  invoke<PriceData>("get_price", { board, itemId, refresh });
 
 export const getSettings = () => invoke<Settings>("get_settings");
 
-/** Seed a scope on first launch. A no-op once one is set. */
-export const ensureMarketScope = (region: string) =>
-  invoke<Settings>("ensure_market_scope", { region });
+/** Seed a board's scope on first launch. A no-op once one is set. */
+export const ensureMarketScope = (board: string, region: string) =>
+  invoke<Settings>("ensure_market_scope", { board, region });
 
-export const setMarketScope = (scope: string) =>
-  invoke<Settings>("set_market_scope", { scope });
+export const setMarketScope = (board: string, scope: string) =>
+  invoke<Settings>("set_market_scope", { board, scope });
 
 export const setHotkey = (hotkey: string) =>
   invoke<Settings>("set_hotkey", { hotkey });
@@ -168,6 +178,16 @@ export const getRecentItems = () => invoke<Item[]>("get_recent_items");
 export const clearRecentItems = () => invoke<void>("clear_recent_items");
 
 export const refreshCatalog = () => invoke<SyncSummary>("refresh_catalog");
+
+/**
+ * Add a column on the board one level wider than the rightmost one - a
+ * world's data center, a data center's region.
+ */
+export const addBoard = () => invoke<Settings>("add_board");
+
+/** Close a column. Rejects when it is the only board left. */
+export const removeBoard = (board: string) =>
+  invoke<Settings>("remove_board", { board });
 
 export const hideOverlay = () => invoke<void>("hide_overlay");
 

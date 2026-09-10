@@ -41,16 +41,17 @@ export const CloseIcon = (props: IconProps) => (
   </Svg>
 );
 
+/** Plus. Adds a market board tab. */
+export const PlusIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M8 3.5v9M3.5 8h9" />
+  </Svg>
+);
+
 export const SearchIcon = (props: IconProps) => (
   <Svg {...props}>
     <circle cx="7" cy="7" r="4.4" />
     <path d="m10.4 10.4 3 3" />
-  </Svg>
-);
-
-export const BackIcon = (props: IconProps) => (
-  <Svg {...props}>
-    <path d="M12.5 8h-9m3.5-3.5L3 8l4 3.5" />
   </Svg>
 );
 

@@ -1,24 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { PricePanel } from "./components/PricePanel";
+import { ComparisonPanel, type BoardPrice } from "./components/ComparisonPanel";
 import { ResultsList } from "./components/ResultsList";
 import { SearchBox } from "./components/SearchBox";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { BoardStrip } from "./components/BoardStrip";
 import { TitleBar } from "./components/TitleBar";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import { guessRegion } from "./lib/region";
 import {
+  addBoard,
   ensureMarketScope,
   getPrice,
   getRecentItems,
   getSettings,
   recordRecentItem,
+  removeBoard,
   hideOverlay,
   searchItems,
   toAppError,
   type AppError,
+  type Board,
   type Item,
-  type PriceData,
   type SearchResult,
   type Settings,
 } from "./lib/tauriApi";
@@ -50,9 +53,17 @@ export default function App() {
   const [highlightIndex, setHighlightIndex] = useState(0);
 
   const [selected, setSelected] = useState<Item | null>(null);
-  const [price, setPrice] = useState<PriceData | null>(null);
-  const [priceLoading, setPriceLoading] = useState(false);
-  const [priceError, setPriceError] = useState<AppError | null>(null);
+  /** Prices for the open item, keyed by board id - one per column. */
+  const [prices, setPrices] = useState<Record<string, BoardPrice>>({});
+  /** Which board the settings panel is editing. */
+  const [editingBoard, setEditingBoard] = useState<string | null>(null);
+
+  const boards: Board[] = settings?.boards ?? [];
+  /** The board the settings panel edits - the first one unless a chip was clicked. */
+  const editing =
+    boards.find((board) => board.id === editingBoard) ?? boards[0] ?? null;
+  /** Setup is done once every column has a board to query. */
+  const ready = boards.length > 0 && boards.every((board) => board.scope);
 
   const searchInput = useRef<HTMLInputElement>(null);
   /** Guards against an older search resolving after a newer one. */
@@ -82,7 +93,8 @@ export default function App() {
    */
   const applySettings = useCallback(
     (next: Settings) => {
-      if (settings && !settings.marketScope && next.marketScope) {
+      const wasIncomplete = settings?.boards.some((board) => !board.scope);
+      if (wasIncomplete && next.boards.every((board) => board.scope)) {
         setShowSettings(false);
       }
       setSettings(next);
@@ -97,8 +109,9 @@ export default function App() {
    */
   useEffect(() => {
     if (!settings) return;
-    if (!settings.marketScope) {
-      ensureMarketScope(guessRegion())
+    const blank = settings.boards.find((board) => !board.scope);
+    if (blank) {
+      ensureMarketScope(blank.id, guessRegion())
         .then(setSettings)
         .catch((cause) => setSettingsError(toAppError(cause)));
       return;
@@ -129,61 +142,123 @@ export default function App() {
 
   // --- Prices ---------------------------------------------------------------
 
-  const loadPrice = useCallback(async (itemId: number, refresh = false) => {
-    const token = ++priceToken.current;
-    setPriceLoading(true);
-    setPriceError(null);
-    try {
-      const data = await getPrice(itemId, refresh);
-      if (token === priceToken.current) setPrice(data);
-    } catch (cause) {
-      if (token === priceToken.current) {
-        setPriceError(toAppError(cause));
-        setPrice(null);
-      }
-    } finally {
-      if (token === priceToken.current) setPriceLoading(false);
-    }
-  }, []);
+  /**
+   * Price `itemId` on every board at once. Columns fill in as their requests
+   * land rather than waiting for the slowest board, so a data centre that is
+   * slow to answer never holds up the world beside it.
+   */
+  const loadPrices = useCallback(
+    (list: Board[], itemId: number, refresh = false) => {
+      const token = ++priceToken.current;
+      setPrices(
+        Object.fromEntries(
+          list.map((board) => [
+            board.id,
+            { price: null, loading: true, error: null },
+          ]),
+        ),
+      );
 
-  const selectItem = useCallback(
-    (item: Item) => {
-      setSelected(item);
-      setPrice(null);
-      // Opening an item is what makes it "recent" - prefetching one the user
-      // only highlighted must not.
-      void recordRecentItem(item.itemId).then(() => void reloadSettings());
-      void loadPrice(item.itemId);
+      for (const board of list) {
+        if (!board.scope) continue;
+        getPrice(board.id, itemId, refresh)
+          .then((price) => {
+            if (token !== priceToken.current) return;
+            setPrices((current) => ({
+              ...current,
+              [board.id]: { price, loading: false, error: null },
+            }));
+          })
+          .catch((cause) => {
+            if (token !== priceToken.current) return;
+            setPrices((current) => ({
+              ...current,
+              [board.id]: {
+                price: null,
+                loading: false,
+                error: toAppError(cause),
+              },
+            }));
+          });
+      }
     },
-    [loadPrice, reloadSettings],
+    [],
   );
 
+  // Re-price when the item changes, and when the set of boards does - adding a
+  // column or re-pointing one has to fill it in without a fresh search.
+  const boardKey = boards.map((board) => `${board.id}:${board.scope}`).join(",");
+  useEffect(() => {
+    if (!selected || boards.length === 0) return;
+    loadPrices(boards, selected.itemId);
+    // `boardKey` stands in for `boards`, which is a new array every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, boardKey, loadPrices]);
+
+  const handleAddBoard = useCallback(() => {
+    addBoard()
+      .then(setSettings)
+      .catch((cause) => setSettingsError(toAppError(cause)));
+  }, []);
+
+  const handleRemoveBoard = useCallback((id: string) => {
+    removeBoard(id)
+      .then(setSettings)
+      .catch((cause) => setSettingsError(toAppError(cause)));
+  }, []);
+
+  const handleEditBoard = useCallback((id: string) => {
+    setEditingBoard(id);
+    setShowSettings(true);
+  }, []);
+
+  const selectItem = useCallback((item: Item) => {
+    setSelected(item);
+    setPrices({});
+    // Hand the space back to the comparison. The search box stays put and
+    // keeps focus, so the next item is one query away rather than one
+    // dismissal and one query away.
+    setQuery("");
+    // Opening an item is what makes it "recent" - prefetching one the user
+    // only highlighted must not.
+    void recordRecentItem(item.itemId).then(() => getRecentItems().then(setRecents));
+  }, []);
+
   const visibleItems: Item[] = query.trim() ? results : recents;
+  /**
+   * Whether a list of items is on screen. The search box is always there, but
+   * below it sits either a list or the comparison, never both - at overlay
+   * height there is not room for two.
+   */
+  const listVisible = Boolean(query.trim()) || !selected;
 
   // Warm the cache for whatever is highlighted, so selecting it is instant.
   // `get_price` is cache-first, so this costs one request per item per TTL.
   useEffect(() => {
-    if (selected || showSettings || !settings?.marketScope) return;
+    if (showSettings || !ready || !listVisible) return;
     const candidate = visibleItems[highlightIndex];
     if (!candidate) return;
     const timer = setTimeout(() => {
-      void getPrice(candidate.itemId).catch(() => {
-        /* A failed prefetch is invisible; selecting it will surface the error. */
-      });
+      // Every column, since opening the item shows them all.
+      for (const board of boards) {
+        void getPrice(board.id, candidate.itemId).catch(() => {
+          /* A failed prefetch is invisible; opening it surfaces the error. */
+        });
+      }
     }, PREFETCH_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [visibleItems, highlightIndex, selected, showSettings, settings?.marketScope]);
+  }, [visibleItems, highlightIndex, listVisible, showSettings, ready, boardKey]);
 
   // --- Keyboard -------------------------------------------------------------
 
   const closePanel = useCallback(() => {
     setSelected(null);
-    setPrice(null);
-    setPriceError(null);
+    setPrices({});
     searchInput.current?.focus();
   }, []);
 
   const handleSearchKeys = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!listVisible) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       if (visibleItems.length === 0) return;
@@ -202,19 +277,20 @@ export default function App() {
   };
 
   // Escape backs out one level at a time, then hides the overlay - so a
-  // single key gets you from anywhere back to the game.
+  // single key gets you from anywhere back to the game. A half-typed query
+  // goes first: it is the thing covering the comparison.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      if (selected) closePanel();
-      else if (showSettings && settings?.marketScope) setShowSettings(false);
-      else if (query) setQuery("");
+      if (query) setQuery("");
+      else if (showSettings && ready) setShowSettings(false);
+      else if (selected) closePanel();
       else void hideOverlay();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selected, showSettings, query, settings?.marketScope, closePanel]);
+  }, [selected, showSettings, query, ready, closePanel]);
 
   // --- Render ---------------------------------------------------------------
 
@@ -223,10 +299,20 @@ export default function App() {
   return (
     <div className="app">
       <TitleBar
-        scope={settings?.marketScope ?? null}
         showSettings={showSettings}
         onToggleSettings={() => setShowSettings((open) => !open)}
       />
+
+      {settings && (
+        <BoardStrip
+          boards={settings.boards}
+          canAddBoard={settings.canAddBoard}
+          editing={showSettings ? (editing?.id ?? null) : null}
+          onEdit={handleEditBoard}
+          onRemove={handleRemoveBoard}
+          onAdd={handleAddBoard}
+        />
+      )}
 
       <main className="content">
         {settingsError && (
@@ -235,20 +321,12 @@ export default function App() {
           </p>
         )}
 
-        {showSettings && settings ? (
+        {showSettings && settings && editing ? (
           <SettingsPanel
             settings={settings}
+            board={editing}
             onSettingsChange={applySettings}
             onCatalogRefreshed={() => void reloadSettings()}
-          />
-        ) : selected ? (
-          <PricePanel
-            item={selected}
-            price={price}
-            loading={priceLoading}
-            error={priceError}
-            onBack={closePanel}
-            onRefresh={() => void loadPrice(selected.itemId, true)}
           />
         ) : (
           <>
@@ -262,31 +340,53 @@ export default function App() {
                 catalogReady ? "Search items..." : "No item catalog yet"
               }
             />
-            {settings?.marketScopeIsGuess && (
+
+            {boards.some((board) => board.scopeIsGuess) && (
               <button
                 type="button"
                 className="scope-nudge"
-                onClick={() => setShowSettings(true)}
+                onClick={() =>
+                  handleEditBoard(
+                    boards.find((board) => board.scopeIsGuess)!.id,
+                  )
+                }
               >
-                Showing <strong>{settings.marketScope}</strong> prices, guessed
-                from your time zone. Pick your home world for prices you can
-                actually buy at.
+                Showing{" "}
+                <strong>
+                  {boards.find((board) => board.scopeIsGuess)!.scope}
+                </strong>{" "}
+                prices, guessed from your time zone. Pick your home world for
+                prices you can actually buy at.
               </button>
             )}
-            {!query.trim() && recents.length > 0 && (
-              <p className="list-label">Recent</p>
+
+            {query.trim() ? (
+              <ResultsList
+                results={results}
+                highlightIndex={highlightIndex}
+                onHighlight={setHighlightIndex}
+                onSelect={selectItem}
+                emptyMessage={`No marketable item matches "${query.trim()}".`}
+              />
+            ) : selected ? (
+              <ComparisonPanel
+                item={selected}
+                boards={boards}
+                prices={prices}
+                onRefresh={() => loadPrices(boards, selected.itemId, true)}
+              />
+            ) : (
+              <>
+                {recents.length > 0 && <p className="list-label">Recent</p>}
+                <ResultsList
+                  results={recents}
+                  highlightIndex={highlightIndex}
+                  onHighlight={setHighlightIndex}
+                  onSelect={selectItem}
+                  emptyMessage="Type to search marketable items."
+                />
+              </>
             )}
-            <ResultsList
-              results={visibleItems}
-              highlightIndex={highlightIndex}
-              onHighlight={setHighlightIndex}
-              onSelect={selectItem}
-              emptyMessage={
-                query.trim()
-                  ? `No marketable item matches "${query.trim()}".`
-                  : "Type to search marketable items."
-              }
-            />
           </>
         )}
       </main>

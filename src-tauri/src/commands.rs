@@ -8,37 +8,48 @@
 use serde::Serialize;
 use tauri::{Emitter, Manager, State};
 
-use crate::config::AppConfig;
 use crate::db::{CatalogInfo, Item};
 use crate::error::{AppError, AppResult};
 use crate::search::{SearchResult, DEFAULT_LIMIT};
 use crate::state::AppState;
-use crate::universalis::{DataCenter, PriceData, World};
+use crate::universalis::{MarketScopes, PriceData};
 use crate::xivapi_sync::{self, SyncProgress, SyncSummary};
 
 /// Event name for catalog-sync progress. Mirrored in `src/lib/tauriApi.ts`.
 pub const SYNC_PROGRESS_EVENT: &str = "catalog-sync-progress";
 
-/// Everything the settings panel needs, in one round trip.
+/// How long adding a board will wait on the world list before giving up and
+/// copying the current one instead. Adding a column must not hang on the
+/// network - the user can always pick a board by hand.
+const WIDEN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// One board being compared, as the strip and its column need it.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardView {
+    pub id: String,
+    /// This board's world, data center, or region.
+    pub scope: Option<String>,
+    /// True while `scope` is an unconfirmed first-launch guess.
+    pub scope_is_guess: bool,
+}
+
+/// Everything the UI needs, in one round trip.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
-    #[serde(flatten)]
-    pub config: AppConfig,
+    /// Boards being compared, left to right - one column each.
+    pub boards: Vec<BoardView>,
+    /// False once `config::MAX_BOARDS` are open - the UI disables its "+".
+    pub can_add_board: bool,
+    pub hotkey: String,
+    pub recent_item_ids: Vec<u32>,
     pub catalog: CatalogInfo,
     /// False when no catalog has been synced yet - the UI shows a setup
     /// prompt rather than an empty, apparently broken search box.
     pub catalog_ready: bool,
     /// Why the hotkey isn't working, or `None` when it is.
     pub hotkey_error: Option<String>,
-}
-
-/// The world/DC picker's options.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MarketScopes {
-    pub worlds: Vec<World>,
-    pub data_centers: Vec<DataCenter>,
 }
 
 #[tauri::command]
@@ -51,18 +62,21 @@ pub fn search_items(
     Ok(index.search(&query, limit.unwrap_or(DEFAULT_LIMIT)))
 }
 
-/// Current prices for one item on the configured world/DC.
+/// Current prices for one item on one board.
 ///
-/// Served from the in-memory cache when fresh; `refresh: true` forces a
-/// network round trip (the UI's manual refresh).
+/// The UI calls this once per column when an item is opened. Requests are
+/// per-board because Universalis has no endpoint that spans worlds; the cache
+/// is keyed by (item, board), so a board you already looked at answers without
+/// touching the network.
 #[tauri::command]
 pub async fn get_price(
     state: State<'_, AppState>,
+    board: String,
     item_id: u32,
     refresh: Option<bool>,
 ) -> AppResult<PriceData> {
     let config = state.config.get();
-    let scope = config.require_scope()?.to_string();
+    let scope = config.require_board(&board)?.require_scope()?.to_string();
 
     if refresh.unwrap_or(false) {
         state.cache.invalidate(item_id, &scope);
@@ -99,18 +113,76 @@ pub fn get_settings(state: State<'_, AppState>) -> AppResult<Settings> {
 /// always visible in the title bar, and the UI nudges the user to narrow it to
 /// their own world. Calling this when a scope already exists does nothing.
 #[tauri::command]
-pub fn ensure_market_scope(state: State<'_, AppState>, region: String) -> AppResult<Settings> {
-    state.config.set_guessed_market_scope(&region)?;
+pub fn ensure_market_scope(
+    state: State<'_, AppState>,
+    board: String,
+    region: String,
+) -> AppResult<Settings> {
+    state.config.set_guessed_board_scope(&board, &region)?;
     state.settings()
 }
 
-/// Set the home world / data center. Clears the price cache, since every
-/// entry in it belongs to the previous board.
+/// Point one board at a world or data center. Only that column moves.
+///
+/// The price cache is left alone: entries are keyed by (item, board), so the
+/// new board simply misses and fetches, and any other column still on the old
+/// one keeps its warm entries.
 #[tauri::command]
-pub fn set_market_scope(state: State<'_, AppState>, scope: String) -> AppResult<Settings> {
-    state.config.set_market_scope(&scope)?;
-    state.cache.clear();
+pub fn set_market_scope(
+    state: State<'_, AppState>,
+    board: String,
+    scope: String,
+) -> AppResult<Settings> {
+    state.config.set_board_scope(&board, &scope)?;
     state.settings()
+}
+
+/// Add a column, one level wider than the rightmost board.
+///
+/// A second board is nearly always added to answer "is the rest of my data
+/// center cheaper?", so it starts on the current board's data center (or
+/// region) and the user can narrow it from there. If the world list can't be
+/// reached in time the column still opens - on the same board as its
+/// neighbour.
+#[tauri::command]
+pub async fn add_board(state: State<'_, AppState>) -> AppResult<Settings> {
+    let current = state
+        .config
+        .get()
+        .boards
+        .last()
+        .and_then(|board| board.scope.clone());
+
+    let scope = match current {
+        Some(ref scope) => widen(&state, scope).await.or_else(|| current.clone()),
+        None => None,
+    };
+
+    state.config.add_board(scope)?;
+    state.settings()
+}
+
+/// Close a column. The last board stays - see `ConfigStore::remove_board`.
+#[tauri::command]
+pub fn remove_board(state: State<'_, AppState>, board: String) -> AppResult<Settings> {
+    state.config.remove_board(&board)?;
+    state.settings()
+}
+
+/// The board one level out from `scope`, or `None` if it can't be worked out
+/// quickly. Never an error: adding a column is not worth failing over.
+async fn widen(state: &AppState, scope: &str) -> Option<String> {
+    match tokio::time::timeout(WIDEN_TIMEOUT, state.market_scopes()).await {
+        Ok(Ok(scopes)) => scopes.widen(scope),
+        Ok(Err(error)) => {
+            eprintln!("couldn't widen '{scope}' for a new board: {error}");
+            None
+        }
+        Err(_) => {
+            eprintln!("timed out looking up the data center for '{scope}'");
+            None
+        }
+    }
 }
 
 /// Change the overlay hotkey, re-registering it immediately. If the new
@@ -147,14 +219,7 @@ pub fn set_hotkey(
 
 #[tauri::command]
 pub async fn list_market_scopes(state: State<'_, AppState>) -> AppResult<MarketScopes> {
-    let (worlds, data_centers) = tokio::try_join!(
-        state.universalis.fetch_worlds(),
-        state.universalis.fetch_data_centers()
-    )?;
-    Ok(MarketScopes {
-        worlds,
-        data_centers,
-    })
+    Ok(state.market_scopes().await?.clone())
 }
 
 /// Recently viewed items, resolved to full catalog entries. IDs that are no

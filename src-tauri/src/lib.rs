@@ -43,6 +43,8 @@ pub fn run() {
             commands::get_recent_items,
             commands::clear_recent_items,
             commands::refresh_catalog,
+            commands::add_board,
+            commands::remove_board,
             commands::hide_overlay,
             commands::get_catalog_path,
         ])
