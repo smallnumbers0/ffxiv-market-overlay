@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "set-version": "node scripts/set-version.mjs",
     "sync-catalog": "cargo run --manifest-path src-tauri/Cargo.toml --release --bin sync_catalog --",
     "test": "vitest run",
     "test:watch": "vitest"
