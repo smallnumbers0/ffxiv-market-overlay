@@ -1,0 +1,52 @@
+[package]
+name = "ffxiv-market-overlay"
+version = "0.1.0"
+description = "Live FFXIV market board prices in a hotkey-toggled overlay"
+authors = ["FFXIV Market Overlay contributors"]
+edition = "2021"
+rust-version = "1.77"
+# This crate ships two binaries; without this, `cargo run` (and so `tauri dev`)
+# can't tell which one is the app.
+default-run = "ffxiv-market-overlay"
+
+[lib]
+# The `_lib` suffix keeps the lib name distinct from the bin name (required on Windows).
+name = "ffxiv_market_overlay_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# The app itself.
+[[bin]]
+name = "ffxiv-market-overlay"
+path = "src/main.rs"
+
+# Build-time catalog generator: populates resources/items.db from XIVAPI +
+# Universalis. Shares db.rs / xivapi_sync.rs with the app so the schema and
+# the sync logic exist in exactly one place.
+[[bin]]
+name = "sync_catalog"
+path = "src/bin/sync_catalog.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
+tauri-plugin-global-shortcut = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+nucleo-matcher = "0.3"
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

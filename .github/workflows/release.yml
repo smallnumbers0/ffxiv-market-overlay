@@ -1,0 +1,119 @@
+name: Release
+
+# Tag a commit to cut a release:
+#   npm version 0.1.1 && git push --follow-tags
+# Or run it by hand from the Actions tab to test the pipeline without tagging.
+on:
+  push:
+    tags: ["v*"]
+  # A manual run builds and uploads the installer as a workflow artifact
+  # without publishing anything - use it to test the pipeline before tagging.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: Windows (x64)
+
+    runs-on: ${{ matrix.platform }}
+    name: ${{ matrix.name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # Keyed on Cargo.lock so a dependency bump busts it, not every commit.
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.target }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check types
+        run: npx tsc --noEmit
+
+      - name: Test frontend
+        run: npm test
+
+      - name: Test backend
+        working-directory: src-tauri
+        run: cargo test
+
+      # The catalog is a build artifact, not a committed file. Generating it
+      # here is what lets the installer ship a ready-to-search app: without
+      # this step the build succeeds but every user gets an empty search box.
+      - name: Generate item catalog
+        run: npm run sync-catalog
+
+      - name: Verify the catalog is real
+        shell: bash
+        run: |
+          db="src-tauri/resources/items.db"
+          size=$(wc -c < "$db")
+          echo "items.db is $size bytes"
+          # A placeholder is 0 bytes and a truncated sync is far under a MB.
+          if [ "$size" -lt 3000000 ]; then
+            echo "::error::items.db looks truncated ($size bytes) - refusing to ship an empty catalog"
+            exit 1
+          fi
+
+      - name: Build installer
+        run: npm run tauri build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.target }}
+          path: |
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+
+  publish:
+    # Only tags publish. A manual run just leaves the installer as an artifact
+    # you can download and try.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          draft: true
+          generate_release_notes: true
+          body: |
+            ## Install
+
+            Download the `.exe` below and run it. It installs for your user
+            account only, so there is no admin prompt.
+
+            Windows will likely show **"Windows protected your PC"** because
+            this installer is not code-signed. Click **More info**, then
+            **Run anyway**. This is normal for community FFXIV tools.
+
+            The item catalog ships inside the installer, so search works the
+            moment the app opens. Prices default to your region, guessed from
+            your system time zone - open settings to narrow it to your home
+            world.

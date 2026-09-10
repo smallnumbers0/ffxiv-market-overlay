@@ -1,0 +1,76 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "FFXIV Market Overlay",
+  "version": "0.1.0",
+  "identifier": "com.ffxivmarketoverlay.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "FFXIV Market Overlay",
+        "width": 460,
+        "height": 620,
+        "minWidth": 360,
+        "minHeight": 300,
+        "resizable": true,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "visible": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis",
+      "app",
+      "dmg"
+    ],
+    "resources": [
+      "resources/items.db"
+    ],
+    "shortDescription": "Live FFXIV market prices in a hotkey-toggled overlay",
+    "longDescription": "Search any marketable Final Fantasy XIV item and see live Universalis prices for your home world or data center, without leaving the game. A standalone companion window: no Dalamud plugin, no game-memory reads, no game-file changes.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper"
+      },
+      "allowDowngrades": false,
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "English"
+        ],
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
+        "startMenuFolder": "FFXIV Market Overlay",
+        "compression": "lzma"
+      }
+    },
+    "publisher": "FFXIV Market Overlay",
+    "copyright": "Unofficial fan tool. Not affiliated with Square Enix.",
+    "category": "Utility",
+    "licenseFile": "../LICENSE"
+  }
+}
