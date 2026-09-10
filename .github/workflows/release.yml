@@ -1,7 +1,8 @@
 name: Release
 
 # Tag a commit to cut a release:
-#   npm version 0.1.1 && git push --follow-tags
+#   npm run set-version 0.1.2
+#   git commit -am "Release 0.1.2" && git tag v0.1.2 && git push --follow-tags
 # Or run it by hand from the Actions tab to test the pipeline without tagging.
 on:
   push:
@@ -97,7 +98,7 @@ jobs:
       - name: Build installer
         run: npm run tauri build
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: installer-${{ matrix.target }}
           path: |
@@ -111,15 +112,16 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
 
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: artifacts/*
+          name: FFXIV Market Overlay ${{ github.ref_name }}
           draft: true
           generate_release_notes: true
           body: |
