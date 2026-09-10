@@ -26,6 +26,12 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// end-of-sheet signal. This is just a runaway guard.
 const MAX_PAGES: u32 = 400;
 
+/// A full sync is ~100 sequential requests, so the chance of hitting one
+/// transient failure is not small. Retrying turns a blip into a pause instead
+/// of a failed release build or a failed patch-day refresh.
+const MAX_ATTEMPTS: u32 = 4;
+const RETRY_BACKOFF: Duration = Duration::from_millis(750);
+
 /// Only these fields are requested. `@as(raw)` on `LevelItem` returns the item
 /// level as a bare number instead of expanding the entire ItemLevel sheet row,
 /// which is ~90 fields of stats we don't want.
@@ -49,6 +55,43 @@ pub struct SyncSummary {
     pub marketable_items: usize,
 }
 
+/// Run `operation`, retrying transient failures with linear backoff.
+///
+/// Only retries errors worth retrying: a timeout, a dropped connection, or a
+/// 5xx. A 404 or a malformed response means the API changed shape and no
+/// amount of retrying will help, so those fail immediately.
+async fn with_retry<T, F, Fut>(mut operation: F) -> AppResult<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = AppResult<T>>,
+{
+    let mut attempt = 1;
+    loop {
+        match operation().await {
+            Ok(value) => return Ok(value),
+            Err(error) if attempt < MAX_ATTEMPTS && is_transient(&error) => {
+                eprintln!("  retrying after error (attempt {attempt}): {error}");
+                tokio::time::sleep(RETRY_BACKOFF * attempt).await;
+                attempt += 1;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+/// Is this error the kind that might succeed on a second try?
+fn is_transient(error: &AppError) -> bool {
+    let message = error.to_string();
+    message.contains("timed out")
+        || message.contains("no network connection")
+        || message.contains("error sending request")
+        || message.contains("connection")
+        // "server replied 5xx"
+        || message.contains("replied 50")
+        || message.contains("replied 52")
+        || message.contains("replied 429")
+}
+
 /// Fetch the catalog and write it to `db_path`, replacing whatever was there.
 ///
 /// The write happens in a single transaction at the very end, so a network
@@ -62,7 +105,7 @@ where
 
     let (items, game_version) = client.fetch_all_items(&mut on_progress).await?;
 
-    let marketable = universalis.fetch_marketable_ids().await?;
+    let marketable = with_retry(|| universalis.fetch_marketable_ids()).await?;
     on_progress(SyncProgress::FetchedMarketable(marketable.len()));
     if marketable.is_empty() {
         return Err(AppError::Universalis(
@@ -132,7 +175,7 @@ impl XivApiClient {
         let mut game_version: Option<String> = None;
 
         for _ in 0..MAX_PAGES {
-            let page = self.fetch_page(after).await?;
+            let page = with_retry(|| self.fetch_page(after)).await?;
             game_version = game_version.or(page.version);
 
             let row_count = page.rows.len();
@@ -163,6 +206,8 @@ impl XivApiClient {
         let response = self.http.get(&url).send().await.map_err(|e| {
             AppError::XivApi(if e.is_timeout() {
                 "request timed out".to_string()
+            } else if e.is_connect() {
+                "no network connection".to_string()
             } else {
                 e.to_string()
             })
@@ -304,6 +349,59 @@ mod tests {
         assert_eq!(item.icon_path, None);
         assert_eq!(item.level_item, None);
         assert_eq!(item.category_name, None);
+    }
+
+    #[test]
+    fn retries_only_errors_worth_retrying() {
+        assert!(is_transient(&AppError::XivApi("request timed out".into())));
+        assert!(is_transient(&AppError::XivApi(
+            "no network connection".into()
+        )));
+        assert!(is_transient(&AppError::XivApi("server replied 503".into())));
+        assert!(is_transient(&AppError::Universalis(
+            "server replied 429".into()
+        )));
+
+        // A changed API shape or a genuinely missing resource: retrying is
+        // just a slower way to fail.
+        assert!(!is_transient(&AppError::XivApi(
+            "server replied 404".into()
+        )));
+        assert!(!is_transient(&AppError::XivApi(
+            "unexpected response: missing field `rows`".into()
+        )));
+    }
+
+    #[tokio::test]
+    async fn with_retry_gives_up_on_a_permanent_error() {
+        let attempts = std::cell::Cell::new(0);
+        let result: AppResult<()> = with_retry(|| {
+            attempts.set(attempts.get() + 1);
+            async { Err(AppError::XivApi("server replied 404".into())) }
+        })
+        .await;
+
+        assert!(result.is_err());
+        assert_eq!(attempts.get(), 1, "a 404 is not retried");
+    }
+
+    #[tokio::test]
+    async fn with_retry_recovers_from_a_transient_error() {
+        let attempts = std::cell::Cell::new(0);
+        let result = with_retry(|| {
+            attempts.set(attempts.get() + 1);
+            let attempt = attempts.get();
+            async move {
+                if attempt < 3 {
+                    Err(AppError::XivApi("request timed out".into()))
+                } else {
+                    Ok(attempt)
+                }
+            }
+        })
+        .await;
+
+        assert_eq!(result.unwrap(), 3);
     }
 
     #[test]
