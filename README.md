@@ -2,8 +2,8 @@
 
 Ever find it time consuming to travel to the market board in game? Tired of opening universalis on another monitor?
 
-Search any marketable Final Fantasy XIV item and see live market board prices
-for your home world or data center, without the tedious time consuming efforts.
+Search any Final Fantasy XIV item and see live market board prices
+for your home world or data center and compare without the tedious time consuming efforts.
 
 **This is a standalone companion window, not a game modification.**
 

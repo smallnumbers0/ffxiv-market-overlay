@@ -27,7 +27,7 @@ jobs:
     name: ${{ matrix.name }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # A tag that disagrees with the manifests ships an installer labelled
       # with the wrong version. Fail here rather than after a 10-minute build.
@@ -48,7 +48,7 @@ jobs:
             fi
           done
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm
