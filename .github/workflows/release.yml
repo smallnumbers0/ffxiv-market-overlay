@@ -95,14 +95,25 @@ jobs:
             exit 1
           fi
 
+      # The updater refuses an unsigned payload, so the private key has to be
+      # present here or the build emits an installer no existing user can
+      # install. Both come from repository secrets; the password is an empty
+      # string for an unprotected key, which is still a secret in transit.
       - name: Build installer
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build
 
+      # The `.sig` rides along with the installer: the publish job needs it to
+      # write the manifest, and without it every installed copy would be stuck
+      # on its current version with no error to see.
       - uses: actions/upload-artifact@v7
         with:
           name: installer-${{ matrix.target }}
           path: |
             src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/release/bundle/nsis/*-setup.exe.sig
           if-no-files-found: error
 
   publish:
@@ -117,10 +128,38 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      # Tauri signs the installer but does not write the manifest the updater
+      # polls - that part is the caller's job, so it is assembled here from the
+      # signature and the tag.
+      - name: Write the updater manifest
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          exe=$(basename artifacts/*-setup.exe)
+          if [ ! -f "artifacts/${exe}.sig" ]; then
+            echo "::error::no signature beside ${exe} - was TAURI_SIGNING_PRIVATE_KEY set?"
+            exit 1
+          fi
+          cat > artifacts/latest.json <<JSON
+          {
+            "version": "${version}",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "windows-x86_64": {
+                "signature": "$(cat "artifacts/${exe}.sig")",
+                "url": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${exe}"
+              }
+            }
+          }
+          JSON
+          cat artifacts/latest.json
+
       - name: Publish release
         uses: softprops/action-gh-release@v3
         with:
-          files: artifacts/*
+          files: |
+            artifacts/*-setup.exe
+            artifacts/latest.json
           name: FFXIV Market Overlay ${{ github.ref_name }}
           draft: true
           generate_release_notes: true

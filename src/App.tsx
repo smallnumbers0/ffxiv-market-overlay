@@ -6,7 +6,9 @@ import { SearchBox } from "./components/SearchBox";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { BoardStrip } from "./components/BoardStrip";
 import { TitleBar } from "./components/TitleBar";
+import { UpdateBanner } from "./components/UpdateBanner";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
+import { useUpdate } from "./hooks/useUpdate";
 import { guessRegion } from "./lib/region";
 import {
   addBoard,
@@ -45,6 +47,7 @@ export default function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [settingsError, setSettingsError] = useState<AppError | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const update = useUpdate();
 
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query, SEARCH_DEBOUNCE_MS);
@@ -315,6 +318,12 @@ export default function App() {
       )}
 
       <main className="content">
+        <UpdateBanner
+          stage={update.stage}
+          onInstall={() => void update.install()}
+          onDismiss={update.dismiss}
+        />
+
         {settingsError && (
           <p className="error-message" role="alert">
             {settingsError.message}

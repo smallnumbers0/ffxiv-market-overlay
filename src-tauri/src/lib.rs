@@ -31,6 +31,10 @@ pub const MAIN_WINDOW: &str = "main";
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        // Updates are checked from the frontend on launch, and installing one
+        // relaunches the app - hence the process plugin alongside it.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             commands::search_items,
             commands::get_price,

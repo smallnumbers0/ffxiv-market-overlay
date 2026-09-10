@@ -331,6 +331,68 @@ body {
   color: var(--text-muted);
 }
 
+/* --- Update banner -------------------------------------------------------- */
+
+/* Sits above the search box rather than over it: an overlay opened mid-fight
+   must never have something to dismiss before it answers a price question. */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 5px 6px 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-hover);
+  font-size: 11px;
+  color: var(--text);
+  flex: none;
+}
+
+.update-banner.is-busy,
+.update-banner.is-failed {
+  display: block;
+  position: relative;
+  padding-right: 26px;
+  color: var(--text-muted);
+}
+
+.update-banner.is-failed {
+  border-color: var(--danger);
+  background: transparent;
+  color: var(--danger);
+}
+
+.update-action {
+  margin-left: auto;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.update-action:hover {
+  background: var(--bg-raised);
+}
+
+.update-dismiss {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+.update-banner.is-busy .update-dismiss,
+.update-banner.is-failed .update-dismiss {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+
 /* --- Content -------------------------------------------------------------- */
 
 .content {

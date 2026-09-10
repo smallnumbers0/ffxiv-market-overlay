@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions the overlay window needs: dragging itself around, and hiding on demand.",
+  "description": "Permissions the overlay window needs: dragging itself around, hiding on demand, and checking for and installing its own updates.",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -12,6 +12,8 @@
     "core:window:allow-minimize",
     "core:window:allow-outer-position",
     "core:window:allow-inner-size",
-    "core:event:default"
+    "core:event:default",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

@@ -33,8 +33,17 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/smallnumbers0/ffxiv-market-overlay/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIzRkFCNkYzQkZBRUIwMzcKUldRM3NLNi84N2I2c3lTU1ZCdzFCT0R4MEVZZllWV2wxMUx5WHFhbkovdGZjVXBvZElFazlISHoK"
+    }
+  },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": [
       "nsis",
       "app",
