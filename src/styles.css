@@ -887,6 +887,89 @@ select.input {
   cursor: default;
 }
 
+/* --- Saved lists ---------------------------------------------------------- */
+
+.saved-tabs {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+
+.saved-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.saved-tab:hover {
+  color: var(--text);
+}
+
+.saved-tab.is-active {
+  border-color: var(--border-soft);
+  background: var(--bg-raised);
+  color: var(--accent);
+}
+
+.saved-tab-count {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+  opacity: 0.7;
+}
+
+/* --- Favorite heart ------------------------------------------------------ */
+
+/* Hearted rows keep their heart on screen; the rest reveal one only under the
+   cursor or the keyboard highlight, so a page of search results stays a list
+   of items rather than a column of buttons. */
+.result-heart {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  margin-right: -2px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.result:hover .result-heart,
+.result.is-highlighted .result-heart,
+.result-heart:focus-visible,
+.result-heart.is-favorite {
+  opacity: 1;
+}
+
+.result-heart:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--hq);
+}
+
+.result-heart.is-favorite {
+  color: var(--hq);
+}
+
+.icon-button.is-favorite {
+  color: var(--hq);
+}
+
 /* --- States --------------------------------------------------------------- */
 
 .empty {

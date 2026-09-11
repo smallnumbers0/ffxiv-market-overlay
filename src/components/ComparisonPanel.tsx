@@ -1,4 +1,4 @@
-import { RefreshIcon } from "./icons";
+import { HeartIcon, RefreshIcon } from "./icons";
 import type { AppError, Board, Item, Listing, PriceData } from "../lib/tauriApi";
 import { iconUrl } from "../lib/tauriApi";
 import { gil, timeAgo, velocity } from "../lib/format";
@@ -21,6 +21,8 @@ interface ComparisonPanelProps {
   item: Item;
   boards: Board[];
   prices: Record<string, BoardPrice | undefined>;
+  favorite: boolean;
+  onToggleFavorite: () => void;
   onRefresh: () => void;
 }
 
@@ -36,6 +38,8 @@ export function ComparisonPanel({
   item,
   boards,
   prices,
+  favorite,
+  onToggleFavorite,
   onRefresh,
 }: ComparisonPanelProps) {
   const icon = iconUrl(item.iconPath);
@@ -63,6 +67,16 @@ export function ComparisonPanel({
               .join(" · ")}
           </p>
         </div>
+        <button
+          type="button"
+          className={`icon-button${favorite ? " is-favorite" : ""}`}
+          onClick={onToggleFavorite}
+          title={favorite ? "Remove from favorites" : "Add to favorites"}
+          aria-label={favorite ? "Remove from favorites" : "Add to favorites"}
+          aria-pressed={favorite}
+        >
+          <HeartIcon filled={favorite} />
+        </button>
         <button
           type="button"
           className="icon-button"

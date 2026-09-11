@@ -44,6 +44,9 @@ pub struct Settings {
     pub can_add_board: bool,
     pub hotkey: String,
     pub recent_item_ids: Vec<u32>,
+    /// Hearted item ids, so a row or panel can draw a filled heart without a
+    /// second round trip.
+    pub favorite_item_ids: Vec<u32>,
     pub catalog: CatalogInfo,
     /// False when no catalog has been synced yet - the UI shows a setup
     /// prompt rather than an empty, apparently broken search box.
@@ -240,6 +243,28 @@ pub fn get_recent_items(state: State<'_, AppState>) -> AppResult<Vec<Item>> {
 pub fn clear_recent_items(state: State<'_, AppState>) -> AppResult<()> {
     state.config.clear_recents()?;
     Ok(())
+}
+
+/// Heart an item, or un-heart one already hearted.
+#[tauri::command]
+pub fn toggle_favorite(state: State<'_, AppState>, item_id: u32) -> AppResult<Settings> {
+    state.config.toggle_favorite(item_id)?;
+    state.settings()
+}
+
+/// Hearted items, resolved to full catalog entries, newest first. Ids no
+/// longer in the catalog (a patch removed them) are dropped silently, the same
+/// way recents are.
+#[tauri::command]
+pub fn get_favorite_items(state: State<'_, AppState>) -> AppResult<Vec<Item>> {
+    let index = state.search_index()?;
+    Ok(state
+        .config
+        .get()
+        .favorite_item_ids
+        .iter()
+        .filter_map(|id| index.get(*id).cloned())
+        .collect())
 }
 
 /// Re-download the catalog into the app-data copy, then swap the in-memory

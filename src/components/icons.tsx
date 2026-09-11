@@ -48,6 +48,20 @@ export const PlusIcon = (props: IconProps) => (
   </Svg>
 );
 
+/**
+ * Heart, hollow or filled. Drawn as two arcs meeting at a point rather than a
+ * single path so it stays recognisable at 12px, where a proper cardioid turns
+ * into a blob.
+ */
+export const HeartIcon = ({ filled = false, ...props }: IconProps & { filled?: boolean }) => (
+  <Svg {...props}>
+    <path
+      d="M8 13.2 3.3 8.6a3 3 0 0 1 4.3-4.2l.4.4.4-.4a3 3 0 0 1 4.3 4.2Z"
+      fill={filled ? "currentColor" : "none"}
+    />
+  </Svg>
+);
+
 export const SearchIcon = (props: IconProps) => (
   <Svg {...props}>
     <circle cx="7" cy="7" r="4.4" />

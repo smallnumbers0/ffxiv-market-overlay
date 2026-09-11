@@ -13,6 +13,9 @@ use crate::error::{AppError, AppResult};
 
 pub const DEFAULT_HOTKEY: &str = "CmdOrControl+Shift+M";
 const MAX_RECENT_ITEMS: usize = 12;
+/// Favorites are deliberate, not automatic, so the cap only exists to stop a
+/// hand-edited config from growing without bound. Nobody curates a hundred.
+const MAX_FAVORITE_ITEMS: usize = 100;
 
 /// Id of the board every config starts with.
 pub const FIRST_BOARD: &str = "board-1";
@@ -85,6 +88,9 @@ pub struct AppConfig {
     /// Most recently viewed items, newest first. Shared across boards - these
     /// are items the user looked at, not a property of any one board.
     pub recent_item_ids: Vec<u32>,
+    /// Hearted items, newest first. Unlike recents these are chosen, so the
+    /// list only changes when the user says so.
+    pub favorite_item_ids: Vec<u32>,
 
     // --- Pre-comparison fields -------------------------------------------
     // Read so upgrading keeps the user's world, folded into `boards` by
@@ -102,6 +108,7 @@ impl Default for AppConfig {
             hotkey: DEFAULT_HOTKEY.to_string(),
             window: None,
             recent_item_ids: Vec::new(),
+            favorite_item_ids: Vec::new(),
             legacy_scope: None,
             legacy_scope_is_guess: false,
         }
@@ -163,6 +170,10 @@ impl AppConfig {
         self.recent_item_ids.retain(|id| *id != item_id);
         self.recent_item_ids.insert(0, item_id);
         self.recent_item_ids.truncate(MAX_RECENT_ITEMS);
+    }
+
+    pub fn is_favorite(&self, item_id: u32) -> bool {
+        self.favorite_item_ids.contains(&item_id)
     }
 }
 
@@ -298,6 +309,24 @@ impl ConfigStore {
 
     pub fn clear_recents(&self) -> AppResult<AppConfig> {
         self.update(|config| config.recent_item_ids.clear())
+    }
+
+    /// Heart an item, or un-heart it if it is already hearted. Returns the
+    /// config so the caller can report the new state without a second read.
+    ///
+    /// Refusing at the cap rather than dropping the oldest: a favorite that
+    /// silently disappeared would be worse than being told the list is full.
+    pub fn toggle_favorite(&self, item_id: u32) -> AppResult<AppConfig> {
+        let config = self.get();
+        if config.is_favorite(item_id) {
+            return self.update(|config| config.favorite_item_ids.retain(|id| *id != item_id));
+        }
+        if config.favorite_item_ids.len() >= MAX_FAVORITE_ITEMS {
+            return Err(AppError::Invalid(format!(
+                "{MAX_FAVORITE_ITEMS} favorites is the maximum - remove one first"
+            )));
+        }
+        self.update(|config| config.favorite_item_ids.insert(0, item_id))
     }
 
     fn save(&self, config: &AppConfig) -> AppResult<()> {
@@ -599,6 +628,63 @@ mod tests {
     fn require_scope_explains_what_to_do() {
         let err = BoardConfig::new(FIRST_BOARD).require_scope().unwrap_err();
         assert!(err.to_string().contains("settings"));
+    }
+
+    #[test]
+    fn favorites_toggle_and_survive_a_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let store = ConfigStore::load(&path);
+
+        store.toggle_favorite(4745).unwrap();
+        let config = store.toggle_favorite(5057).unwrap();
+        assert_eq!(config.favorite_item_ids, vec![5057, 4745], "newest first");
+        assert!(config.is_favorite(4745));
+
+        // The same item again un-hearts it rather than duplicating it.
+        let config = store.toggle_favorite(4745).unwrap();
+        assert_eq!(config.favorite_item_ids, vec![5057]);
+        assert!(!config.is_favorite(4745));
+
+        assert_eq!(ConfigStore::load(&path).get().favorite_item_ids, vec![5057]);
+    }
+
+    /// Unlike recents, a favorite the user chose must never be silently
+    /// dropped to make room.
+    #[test]
+    fn favorites_are_capped_without_losing_any() {
+        let (_dir, store) = store();
+        for id in 1..=(MAX_FAVORITE_ITEMS as u32) {
+            store.toggle_favorite(id).unwrap();
+        }
+        assert_eq!(store.get().favorite_item_ids.len(), MAX_FAVORITE_ITEMS);
+
+        let err = store.toggle_favorite(9999).unwrap_err();
+        assert_eq!(err.kind(), "invalid");
+        assert_eq!(
+            store.get().favorite_item_ids.len(),
+            MAX_FAVORITE_ITEMS,
+            "nothing was evicted"
+        );
+
+        // Un-hearting still works at the cap.
+        store.toggle_favorite(1).unwrap();
+        assert!(store.toggle_favorite(9999).is_ok());
+    }
+
+    #[test]
+    fn favorites_and_recents_are_independent() {
+        let (_dir, store) = store();
+        store.push_recent(4745).unwrap();
+        store.toggle_favorite(4745).unwrap();
+
+        store.clear_recents().unwrap();
+        let config = store.get();
+        assert!(config.recent_item_ids.is_empty());
+        assert!(
+            config.is_favorite(4745),
+            "clearing recents must not touch a hearted item"
+        );
     }
 
     #[test]

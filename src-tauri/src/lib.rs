@@ -46,6 +46,8 @@ pub fn run() {
             commands::record_recent_item,
             commands::get_recent_items,
             commands::clear_recent_items,
+            commands::toggle_favorite,
+            commands::get_favorite_items,
             commands::refresh_catalog,
             commands::add_board,
             commands::remove_board,

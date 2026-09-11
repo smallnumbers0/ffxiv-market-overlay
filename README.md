@@ -42,6 +42,8 @@ your game window.
 - **Global hotkey overlay** - `Ctrl+Shift+M` by default (`Cmd+Shift+M` on
   macOS), configurable. Shows over the game, hides completely when toggled off.
 - **Item icons** - rendered from XIVAPI's asset service.
+- **Favorites** - heart an item to keep it in a list you can open without
+  searching. Survives restarts, and sits beside Recent under the search box.
 - **Recent items** - the last dozen items you looked at, one keystroke away.
 - **Refresh item database** - re-sync the catalog in-app after a game patch
   adds new items.
@@ -151,6 +153,11 @@ here makes it substantially more useful.
   skip words and letters: `hipot` finds _Hi-Potion_, `savaim x` finds _Savage
   Aim Materia X_, `grade8tinc` finds the Grade 8 Tinctures. Results are ranked
   by how well they match, with earlier and shorter matches first.
+- **Favorite an item** with the heart, either on its row in any list or in the
+  header of an open item. Hearted items stay in **Favorites**, which sits with
+  **Recent** under the search box whenever the box is empty - so the things you
+  track are one click away instead of one search. Click a filled heart to
+  remove it.
 - **Move** through results with the up and down arrow keys; **open** the
   highlighted item with `Enter`, or just click it. The search box stays on
   screen while you read prices, so the next item is one query away - type over

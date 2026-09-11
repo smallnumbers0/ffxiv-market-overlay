@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ComparisonPanel, type BoardPrice } from "./components/ComparisonPanel";
 import { ResultsList } from "./components/ResultsList";
 import { SearchBox } from "./components/SearchBox";
+import { SavedListTabs } from "./components/SavedListTabs";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { BoardStrip } from "./components/BoardStrip";
 import { TitleBar } from "./components/TitleBar";
@@ -14,10 +15,12 @@ import {
   addBoard,
   ensureMarketScope,
   getPrice,
+  getFavoriteItems,
   getRecentItems,
   getSettings,
   recordRecentItem,
   removeBoard,
+  toggleFavorite,
   hideOverlay,
   searchItems,
   toAppError,
@@ -53,6 +56,9 @@ export default function App() {
   const debouncedQuery = useDebouncedValue(query, SEARCH_DEBOUNCE_MS);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [recents, setRecents] = useState<Item[]>([]);
+  const [favorites, setFavorites] = useState<Item[]>([]);
+  /** Which saved list the empty-query screen shows. */
+  const [savedList, setSavedList] = useState<"favorites" | "recent">("recent");
   const [highlightIndex, setHighlightIndex] = useState(0);
 
   const [selected, setSelected] = useState<Item | null>(null);
@@ -80,6 +86,7 @@ export default function App() {
       setSettings(next);
       setSettingsError(null);
       setRecents(await getRecentItems());
+      setFavorites(await getFavoriteItems());
     } catch (cause) {
       setSettingsError(toAppError(cause));
     }
@@ -88,6 +95,18 @@ export default function App() {
   useEffect(() => {
     void reloadSettings();
   }, [reloadSettings]);
+
+  /**
+   * Open on favorites once there are any, and only on the first load - after
+   * that the choice is the user's and must not be yanked back when a list
+   * happens to empty.
+   */
+  const chosenList = useRef(false);
+  useEffect(() => {
+    if (chosenList.current || favorites.length === 0) return;
+    chosenList.current = true;
+    setSavedList("favorites");
+  }, [favorites.length]);
 
   /**
    * Settings opens itself when setup is incomplete; close it again the moment
@@ -210,6 +229,18 @@ export default function App() {
       .catch((cause) => setSettingsError(toAppError(cause)));
   }, []);
 
+  const handleToggleFavorite = useCallback(
+    (itemId: number) => {
+      toggleFavorite(itemId)
+        .then((next) => {
+          setSettings(next);
+          return getFavoriteItems().then(setFavorites);
+        })
+        .catch((cause) => setSettingsError(toAppError(cause)));
+    },
+    [],
+  );
+
   const handleEditBoard = useCallback(
     (id: string) => {
       // The chip is the toggle, so it has to work both ways - opening settings
@@ -237,7 +268,8 @@ export default function App() {
     void recordRecentItem(item.itemId).then(() => getRecentItems().then(setRecents));
   }, []);
 
-  const visibleItems: Item[] = query.trim() ? results : recents;
+  const saved = savedList === "favorites" ? favorites : recents;
+  const visibleItems: Item[] = query.trim() ? results : saved;
   /**
    * Whether a list of items is on screen. The search box is always there, but
    * below it sits either a list or the comparison, never both - at overlay
@@ -386,6 +418,8 @@ export default function App() {
                 highlightIndex={highlightIndex}
                 onHighlight={setHighlightIndex}
                 onSelect={selectItem}
+                favorites={settings?.favoriteItemIds ?? []}
+                onToggleFavorite={handleToggleFavorite}
                 emptyMessage={`No marketable item matches "${query.trim()}".`}
               />
             ) : selected ? (
@@ -393,17 +427,32 @@ export default function App() {
                 item={selected}
                 boards={boards}
                 prices={prices}
+                favorite={
+                  settings?.favoriteItemIds.includes(selected.itemId) ?? false
+                }
+                onToggleFavorite={() => handleToggleFavorite(selected.itemId)}
                 onRefresh={() => loadPrices(boards, selected.itemId, true)}
               />
             ) : (
               <>
-                {recents.length > 0 && <p className="list-label">Recent</p>}
+                <SavedListTabs
+                  active={savedList}
+                  onSelect={setSavedList}
+                  favoriteCount={favorites.length}
+                  recentCount={recents.length}
+                />
                 <ResultsList
-                  results={recents}
+                  results={saved}
                   highlightIndex={highlightIndex}
                   onHighlight={setHighlightIndex}
                   onSelect={selectItem}
-                  emptyMessage="Type to search marketable items."
+                  favorites={settings?.favoriteItemIds ?? []}
+                  onToggleFavorite={handleToggleFavorite}
+                  emptyMessage={
+                    savedList === "favorites"
+                      ? "No favorites yet. Open an item and press the heart to keep it here."
+                      : "Type to search marketable items."
+                  }
                 />
               </>
             )}

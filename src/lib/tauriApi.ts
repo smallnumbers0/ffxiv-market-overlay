@@ -100,6 +100,8 @@ export interface Settings {
   canAddBoard: boolean;
   hotkey: string;
   recentItemIds: number[];
+  /** Hearted item ids, so a row can draw a filled heart without asking. */
+  favoriteItemIds: number[];
   catalog: CatalogInfo;
   catalogReady: boolean;
   /** Why the global hotkey isn't active, or `null` when it is. */
@@ -176,6 +178,12 @@ export const recordRecentItem = (itemId: number) =>
 export const getRecentItems = () => invoke<Item[]>("get_recent_items");
 
 export const clearRecentItems = () => invoke<void>("clear_recent_items");
+
+/** Heart an item, or un-heart one already hearted. */
+export const toggleFavorite = (itemId: number) =>
+  invoke<Settings>("toggle_favorite", { itemId });
+
+export const getFavoriteItems = () => invoke<Item[]>("get_favorite_items");
 
 export const refreshCatalog = () => invoke<SyncSummary>("refresh_catalog");
 

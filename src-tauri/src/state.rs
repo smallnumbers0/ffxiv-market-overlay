@@ -107,6 +107,7 @@ impl AppState {
                 .collect(),
             hotkey: config.hotkey,
             recent_item_ids: config.recent_item_ids,
+            favorite_item_ids: config.favorite_item_ids,
             catalog,
             catalog_ready: self.catalog_ready(),
             hotkey_error: self.hotkey_error(),
