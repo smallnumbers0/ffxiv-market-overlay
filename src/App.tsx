@@ -125,15 +125,25 @@ export default function App() {
   );
 
   /**
-   * First launch: seed a region from the system time zone so the app is
-   * usable immediately, and only fall back to the settings panel when there
-   * is genuinely nothing to search (no catalog at all).
+   * First launch: seed a board from the system time zone so the app is usable
+   * immediately, and only fall back to the settings panel when there is
+   * genuinely nothing to search (no catalog at all).
+   *
+   * This also retires the region-wide scopes older versions saved, so it runs
+   * even when every board already has one. It runs exactly once: resolving a
+   * region needs the world list, and when that is unreachable the call comes
+   * back with nothing changed - retrying on that would spin.
    */
+  const scopesResolved = useRef(false);
+
   useEffect(() => {
     if (!settings) return;
-    const blank = settings.boards.find((board) => !board.scope);
-    if (blank) {
-      ensureMarketScope(blank.id, guessRegion())
+    if (!scopesResolved.current && settings.boards.length > 0) {
+      scopesResolved.current = true;
+      const board =
+        settings.boards.find((candidate) => !candidate.scope) ??
+        settings.boards[0];
+      ensureMarketScope(board.id, guessRegion())
         .then(setSettings)
         .catch((cause) => setSettingsError(toAppError(cause)));
       return;
@@ -392,25 +402,6 @@ export default function App() {
                 catalogReady ? "Search items..." : "No item catalog yet"
               }
             />
-
-            {boards.some((board) => board.scopeIsGuess) && (
-              <button
-                type="button"
-                className="scope-nudge"
-                onClick={() =>
-                  handleEditBoard(
-                    boards.find((board) => board.scopeIsGuess)!.id,
-                  )
-                }
-              >
-                Showing{" "}
-                <strong>
-                  {boards.find((board) => board.scopeIsGuess)!.scope}
-                </strong>{" "}
-                prices, guessed from your time zone. Pick your home world for
-                prices you can actually buy at.
-              </button>
-            )}
 
             {query.trim() ? (
               <ResultsList

@@ -28,10 +28,8 @@ const WIDEN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 #[serde(rename_all = "camelCase")]
 pub struct BoardView {
     pub id: String,
-    /// This board's world, data center, or region.
+    /// This board's world or data center.
     pub scope: Option<String>,
-    /// True while `scope` is an unconfirmed first-launch guess.
-    pub scope_is_guess: bool,
 }
 
 /// Everything the UI needs, in one round trip.
@@ -112,17 +110,68 @@ pub fn get_settings(state: State<'_, AppState>) -> AppResult<Settings> {
 /// opens, instead of demanding a setup step before it will show a single price.
 ///
 /// The frontend derives `region` from the system time zone - the only signal
-/// available to a companion app that never reads the game. It's a guess, it is
-/// always visible in the title bar, and the UI nudges the user to narrow it to
-/// their own world. Calling this when a scope already exists does nothing.
+/// available to a companion app that never reads the game. A region is not
+/// itself a usable board (whole-region queries time out; see
+/// `MarketScopes::widen`), so it is resolved to one data center inside it.
+/// The result is a guess and may well be the wrong data center, which is why
+/// the board strip names it and opens the picker on click. It is not
+/// announced: the guess costs a click to fix, a banner costs one from
+/// everybody.
+///
+/// The same pass retires region scopes saved by earlier versions, which is the
+/// only way those users get off a board that answers every lookup with a 504.
+/// The replacement data center is as arbitrary as any first-launch guess, but
+/// the board strip names it and one click changes it. Boards that already name
+/// a world or data center are left alone.
+///
+/// Never fails on a cold world list: without it there is nothing to resolve
+/// against, and a first launch with no network has no prices to show anyway.
 #[tauri::command]
-pub fn ensure_market_scope(
+pub async fn ensure_market_scope(
     state: State<'_, AppState>,
     board: String,
     region: String,
 ) -> AppResult<Settings> {
-    state.config.set_guessed_board_scope(&board, &region)?;
+    let Some(scopes) = scopes_for_resolving(&state).await else {
+        return state.settings();
+    };
+
+    // Regions saved by an older version, on any board - not just `board`.
+    let stale: Vec<(String, String)> = state
+        .config
+        .get()
+        .boards
+        .iter()
+        .filter_map(|b| {
+            let scope = b.scope.as_deref()?;
+            let dc = scopes.default_data_center(scope)?;
+            Some((b.id.clone(), dc))
+        })
+        .collect();
+    for (id, dc) in stale {
+        state.config.set_board_scope(&id, &dc)?;
+    }
+
+    if let Some(dc) = scopes.default_data_center(&region) {
+        state.config.set_guessed_board_scope(&board, &dc)?;
+    }
     state.settings()
+}
+
+/// The world list, if it arrives quickly enough to be worth waiting on.
+/// Resolving a scope is startup work - it must not hold the UI open.
+async fn scopes_for_resolving<'a>(state: &'a State<'_, AppState>) -> Option<&'a MarketScopes> {
+    match tokio::time::timeout(WIDEN_TIMEOUT, state.market_scopes()).await {
+        Ok(Ok(scopes)) => Some(scopes),
+        Ok(Err(error)) => {
+            eprintln!("couldn't reach the world list to resolve a scope: {error}");
+            None
+        }
+        Err(_) => {
+            eprintln!("timed out fetching the world list to resolve a scope");
+            None
+        }
+    }
 }
 
 /// Point one board at a world or data center. Only that column moves.
@@ -143,8 +192,9 @@ pub fn set_market_scope(
 /// Add a column, one level wider than the rightmost board.
 ///
 /// A second board is nearly always added to answer "is the rest of my data
-/// center cheaper?", so it starts on the current board's data center (or
-/// region) and the user can narrow it from there. If the world list can't be
+/// center cheaper?", so it starts on the current board's data center and the
+/// user can narrow it from there. A board already on a data center is as wide
+/// as boards go, so the new column copies it. If the world list can't be
 /// reached in time the column still opens - on the same board as its
 /// neighbour.
 #[tauri::command]

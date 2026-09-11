@@ -102,7 +102,6 @@ impl AppState {
                 .map(|board| BoardView {
                     id: board.id,
                     scope: board.scope,
-                    scope_is_guess: board.scope_is_guess,
                 })
                 .collect(),
             hotkey: config.hotkey,

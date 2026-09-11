@@ -36,13 +36,10 @@ pub const MAX_BOARDS: usize = 4;
 #[serde(rename_all = "camelCase", default)]
 pub struct BoardConfig {
     pub id: String,
-    /// World, data center, or region name passed straight to Universalis.
-    /// `None` only until first launch guesses a region from the system clock.
+    /// World or data center name passed straight to Universalis. Never a
+    /// region - see `MarketScopes::widen`. `None` only until first launch
+    /// resolves one from the system clock.
     pub scope: Option<String>,
-    /// True while `scope` is a first-launch guess the user has never
-    /// confirmed. Drives the "these are region-wide prices, pick your world"
-    /// nudge, and is cleared the moment they choose one themselves.
-    pub scope_is_guess: bool,
 }
 
 impl Default for BoardConfig {
@@ -56,7 +53,6 @@ impl BoardConfig {
         Self {
             id: id.to_string(),
             scope: None,
-            scope_is_guess: false,
         }
     }
 
@@ -97,8 +93,6 @@ pub struct AppConfig {
     // `migrate`, and never written back out.
     #[serde(rename = "marketScope", skip_serializing)]
     legacy_scope: Option<String>,
-    #[serde(rename = "marketScopeIsGuess", skip_serializing)]
-    legacy_scope_is_guess: bool,
 }
 
 impl Default for AppConfig {
@@ -110,7 +104,6 @@ impl Default for AppConfig {
             recent_item_ids: Vec::new(),
             favorite_item_ids: Vec::new(),
             legacy_scope: None,
-            legacy_scope_is_guess: false,
         }
     }
 }
@@ -148,11 +141,9 @@ impl AppConfig {
             let first = &mut self.boards[0];
             if first.scope.is_none() {
                 first.scope = Some(scope);
-                first.scope_is_guess = self.legacy_scope_is_guess;
             }
         }
         self.legacy_scope = None;
-        self.legacy_scope_is_guess = false;
 
         // A hand-edited config must not be able to open a hundred columns.
         self.boards.truncate(MAX_BOARDS);
@@ -242,11 +233,10 @@ impl ConfigStore {
         let scope = validate_scope(scope)?;
         self.update_board(id, |board| {
             board.scope = Some(scope);
-            board.scope_is_guess = false;
         })
     }
 
-    /// Set a first-launch guess, but never overwrite a real choice.
+    /// Set a first-launch scope, but never overwrite a choice already made.
     ///
     /// Returning the config unchanged when a scope already exists is what
     /// makes this safe to call on every startup.
@@ -257,7 +247,6 @@ impl ConfigStore {
         }
         self.update_board(id, |board| {
             board.scope = Some(scope);
-            board.scope_is_guess = true;
         })
     }
 
@@ -272,7 +261,6 @@ impl ConfigStore {
         let board = BoardConfig {
             id: config.free_board_id(),
             scope,
-            scope_is_guess: false,
         };
         self.update(|config| config.boards.push(board))
     }
@@ -347,7 +335,7 @@ impl ConfigStore {
     }
 }
 
-/// Worlds, data centers and regions all arrive here as free text from the
+/// Worlds and data centers both arrive here as free text from the
 /// picker; the only rule is that a board name has to be something.
 fn validate_scope(scope: &str) -> AppResult<String> {
     let scope = scope.trim();
@@ -535,6 +523,33 @@ mod tests {
         );
     }
 
+    /// Shipped builds wrote a per-board `scopeIsGuess`, which drove a
+    /// first-launch banner this version no longer has. Those configs must
+    /// still load every board - dropping one would lose a user's column.
+    #[test]
+    fn the_retired_guess_flag_is_ignored_not_fatal() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::write(
+            &path,
+            r#"{"boards":[{"id":"board-1","scope":"Marilith","scopeIsGuess":false},
+                          {"id":"board-2","scope":"Aether","scopeIsGuess":true}],
+                "hotkey":"CmdOrControl+Shift+M"}"#,
+        )
+        .unwrap();
+
+        let store = ConfigStore::load(&path);
+        let config = store.get();
+        assert_eq!(config.boards.len(), 2);
+        assert_eq!(scope_of(&config, "board-1").as_deref(), Some("Marilith"));
+        assert_eq!(scope_of(&config, "board-2").as_deref(), Some("Aether"));
+
+        // And the key does not survive the next write.
+        store.set_hotkey("Alt+N").unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("scopeIsGuess"));
+    }
+
     /// The build that shipped tabs wrote this key. Those users should keep
     /// their boards rather than silently dropping back to one.
     #[test]
@@ -571,7 +586,6 @@ mod tests {
         let config = store.get();
         let board = config.board(FIRST_BOARD).unwrap();
         assert_eq!(board.scope.as_deref(), Some("Cactuar"));
-        assert!(!board.scope_is_guess);
         assert_eq!(config.window.unwrap().width, 300);
         assert_eq!(config.hotkey, "Alt+M");
         assert_eq!(config.recent_item_ids, vec![5, 6]);
@@ -587,28 +601,21 @@ mod tests {
     }
 
     #[test]
-    fn a_guessed_scope_never_overwrites_a_real_choice() {
+    fn a_first_launch_scope_never_overwrites_a_real_choice() {
         let (_dir, store) = store();
 
-        let config = store
-            .set_guessed_board_scope(FIRST_BOARD, "North-America")
-            .unwrap();
-        assert_eq!(
-            scope_of(&config, FIRST_BOARD).as_deref(),
-            Some("North-America")
-        );
-        assert!(config.board(FIRST_BOARD).unwrap().scope_is_guess);
+        let config = store.set_guessed_board_scope(FIRST_BOARD, "Aether").unwrap();
+        assert_eq!(scope_of(&config, FIRST_BOARD).as_deref(), Some("Aether"));
 
-        // The user picks their own world - the guess flag goes away.
+        // The user picks their own world.
         let config = store.set_board_scope(FIRST_BOARD, "Cactuar").unwrap();
-        assert!(!config.board(FIRST_BOARD).unwrap().scope_is_guess);
+        assert_eq!(scope_of(&config, FIRST_BOARD).as_deref(), Some("Cactuar"));
 
-        // A later startup guess must not clobber it.
+        // A later startup must not clobber it.
         let config = store
-            .set_guessed_board_scope(FIRST_BOARD, "Europe")
+            .set_guessed_board_scope(FIRST_BOARD, "Chaos")
             .unwrap();
         assert_eq!(scope_of(&config, FIRST_BOARD).as_deref(), Some("Cactuar"));
-        assert!(!config.board(FIRST_BOARD).unwrap().scope_is_guess);
     }
 
     #[test]

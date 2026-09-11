@@ -54,7 +54,7 @@ impl UniversalisClient {
         })
     }
 
-    /// Current market state for one item on a world, DC, or region.
+    /// Current market state for one item on a world or data center.
     pub async fn fetch_price(&self, item_id: u32, scope: &str) -> AppResult<PriceData> {
         let raw: RawMarketData = self.get_market(&[item_id], scope).await?;
         Ok(PriceData::from_raw(item_id, scope, raw))
@@ -179,7 +179,7 @@ fn urlencode(value: &str) -> String {
 #[serde(rename_all = "camelCase")]
 pub struct PriceData {
     pub item_id: u32,
-    /// The world / DC / region this was queried for.
+    /// The world or data center this was queried for.
     pub scope: String,
     pub listings: Vec<Listing>,
     pub recent_sales: Vec<Sale>,
@@ -204,7 +204,7 @@ pub struct Listing {
     pub quantity: u32,
     pub total: u32,
     pub hq: bool,
-    /// Present on data-center and region queries; `None` for a single world.
+    /// Present on data-center queries; `None` for a single world.
     pub world_name: Option<String>,
     pub retainer_name: Option<String>,
 }
@@ -246,32 +246,53 @@ pub struct MarketScopes {
 
 impl MarketScopes {
     /// The next-widest board containing `scope`: a world widens to its data
-    /// center, a data center to its region, and a region has nowhere to go.
+    /// center, and that is as wide as it goes.
     ///
     /// This is what makes a freshly opened pane immediately useful. The reason
     /// to want a second one is nearly always to ask "is the rest of my DC
     /// selling this cheaper?", so a new pane opens one level out from the one
     /// it was opened from rather than duplicating it.
+    ///
+    /// It deliberately stops at the data center. Universalis will answer a
+    /// whole-region query, but it has to aggregate every world in the region
+    /// to do it: those requests run several times slower than the same query
+    /// against one data center and routinely time out with a 504, which is
+    /// useless to someone checking a price mid-gameplay. See
+    /// `default_data_center` for the other half of that rule.
     pub fn widen(&self, scope: &str) -> Option<String> {
         let scope = scope.trim();
         if scope.is_empty() {
             return None;
         }
 
-        if let Some(world) = self.worlds.iter().find(|world| same(&world.name, scope)) {
-            if let Some(dc) = self
-                .data_centers
-                .iter()
-                .find(|dc| dc.worlds.contains(&world.id))
-            {
-                return Some(dc.name.clone());
-            }
-        }
-
+        let world = self.worlds.iter().find(|world| same(&world.name, scope))?;
         self.data_centers
             .iter()
-            .find(|dc| same(&dc.name, scope))
-            .map(|dc| dc.region.clone())
+            .find(|dc| dc.worlds.contains(&world.id))
+            .map(|dc| dc.name.clone())
+    }
+
+    /// A data center to stand in for `region`, or `None` if `region` isn't one.
+    ///
+    /// Regions are not queryable boards (see `widen`), but they are still the
+    /// only thing a time zone can tell us on first launch, and older versions
+    /// saved them as scopes. Both cases resolve through here.
+    ///
+    /// Which data center hardly matters - every one in a region is an equally
+    /// arbitrary guess at where someone plays, the choice is flagged as a
+    /// guess in the UI, and narrowing it is one click. Taking the first by
+    /// name just makes it predictable.
+    pub fn default_data_center(&self, region: &str) -> Option<String> {
+        let region = region.trim();
+        if region.is_empty() {
+            return None;
+        }
+        self.data_centers
+            .iter()
+            .filter(|dc| same(&dc.region, region))
+            .map(|dc| &dc.name)
+            .min()
+            .cloned()
     }
 }
 
@@ -458,13 +479,35 @@ mod tests {
     }
 
     #[test]
-    fn a_data_center_widens_to_its_region() {
-        assert_eq!(scopes().widen("Aether").as_deref(), Some("North-America"));
+    fn a_data_center_is_as_wide_as_a_board_goes() {
+        // Not "North-America": whole-region queries 504 often enough to be
+        // worse than no second column at all.
+        assert_eq!(scopes().widen("Aether"), None);
+        assert_eq!(scopes().widen("Elemental"), None);
     }
 
     #[test]
     fn a_region_has_nowhere_wider_to_go() {
         assert_eq!(scopes().widen("North-America"), None);
+    }
+
+    #[test]
+    fn a_region_resolves_to_one_of_its_data_centers() {
+        assert_eq!(
+            scopes().default_data_center("North-America").as_deref(),
+            Some("Aether")
+        );
+        assert_eq!(
+            scopes().default_data_center(" japan ").as_deref(),
+            Some("Elemental")
+        );
+    }
+
+    #[test]
+    fn only_regions_resolve_to_a_data_center() {
+        assert_eq!(scopes().default_data_center("Aether"), None);
+        assert_eq!(scopes().default_data_center("Cactuar"), None);
+        assert_eq!(scopes().default_data_center(""), None);
     }
 
     #[test]

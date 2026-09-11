@@ -3,13 +3,16 @@
  * system time zone.
  *
  * This exists so the app shows real prices the moment it opens instead of
- * demanding a setup step first. It is only ever a starting point: the chosen
- * scope is always visible in the title bar, and the UI nudges the user to
- * narrow it to their own world, which is the only way to get prices they can
- * actually act on without travelling.
+ * demanding a setup step first. It is only ever a starting point, and it says
+ * so by being ordinary: the board strip names the scope like any other, and
+ * clicking it opens the picker. Nothing announces the guess - a banner every
+ * user has to dismiss costs more than the guess being wrong.
  *
- * Region names must match Universalis's `/api/v2/data-centers` `region` values
- * exactly, since they are used directly as a query scope.
+ * A region is never queried directly - whole-region requests are slow enough
+ * to time out. The backend resolves the guess to one data center inside the
+ * region and boards that instead. Region names must still match Universalis's
+ * `/api/v2/data-centers` `region` values exactly, since that resolution and
+ * the picker's grouping both match on them.
  */
 
 export const DEFAULT_REGION = "North-America";
@@ -61,4 +64,20 @@ export function guessRegion(): string {
     // Intl is always present in WebView2, but never let a guess break startup.
     return DEFAULT_REGION;
   }
+}
+
+/**
+ * Order two region names for the world picker, floating the player's own
+ * region to the top and leaving the rest alphabetical.
+ *
+ * Alphabetical on its own buries North-America behind Europe and Japan, which
+ * is a lot of scrolling past worlds you will never price-check. The home
+ * region comes from the same time-zone guess that seeds the first board, so
+ * the picker opens on the servers the player actually plays on.
+ */
+export function compareRegions(a: string, b: string, homeRegion: string): number {
+  if (a === b) return 0;
+  if (a === homeRegion) return -1;
+  if (b === homeRegion) return 1;
+  return a.localeCompare(b);
 }

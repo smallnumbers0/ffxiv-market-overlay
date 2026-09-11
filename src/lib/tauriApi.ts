@@ -86,10 +86,8 @@ export interface CatalogInfo {
 /** One board being compared - the strip draws it, and so does its column. */
 export interface Board {
   id: string;
-  /** This board's world, data center, or region. */
+  /** This board's world or data center. */
   scope: string | null;
-  /** True while `scope` is an unconfirmed first-launch guess. */
-  scopeIsGuess: boolean;
 }
 
 /** Everything the UI needs, in one round trip. */

@@ -16,6 +16,8 @@ import {
   type SyncProgress,
 } from "../lib/tauriApi";
 import { count, syncedAt } from "../lib/format";
+import { guessRegion } from "../lib/region";
+import { groupScopes } from "../lib/scopes";
 
 interface SettingsPanelProps {
   settings: Settings;
@@ -62,21 +64,13 @@ export function SettingsPanel({
   }, []);
 
   /** Worlds grouped under their data center, so the picker reads like the
-   *  in-game world select rather than one flat list of 100+ names. */
-  const grouped = useMemo(() => {
-    if (!scopes) return [];
-    const byId = new Map(scopes.worlds.map((world) => [world.id, world.name]));
-    return scopes.dataCenters
-      .map((dc) => ({
-        ...dc,
-        worldNames: dc.worlds
-          .map((id) => byId.get(id))
-          .filter((name): name is string => Boolean(name))
-          .sort(),
-      }))
-      .filter((dc) => dc.worldNames.length > 0)
-      .sort((a, b) => a.region.localeCompare(b.region) || a.name.localeCompare(b.name));
-  }, [scopes]);
+   *  in-game world select rather than one flat list of 100+ names. The
+   *  player's own region sorts first - see `groupScopes`. */
+  const homeRegion = useMemo(() => guessRegion(), []);
+  const grouped = useMemo(
+    () => groupScopes(scopes, homeRegion),
+    [scopes, homeRegion],
+  );
 
   const recentCount = settings.recentItemIds.length;
 
@@ -142,16 +136,21 @@ export function SettingsPanel({
             <option value="" disabled>
               {scopes ? "Select a world..." : "Loading worlds..."}
             </option>
-            {grouped.map((dc) => (
-              <optgroup key={dc.name} label={`${dc.region} - ${dc.name}`}>
-                <option value={dc.name}>{dc.name} (whole data center)</option>
-                {dc.worldNames.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
+            {/* No whole-region entry: Universalis has to aggregate every
+                world in a region to answer one, which is slow enough to 504.
+                A data center is the widest board this app will ask for. */}
+            {grouped.flatMap((group) =>
+              group.dataCenters.map((dc) => (
+                <optgroup key={dc.name} label={`${group.region} - ${dc.name}`}>
+                  <option value={dc.name}>{dc.name} (whole data center)</option>
+                  {dc.worldNames.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </optgroup>
+              )),
+            )}
           </select>
         )}
       </Field>

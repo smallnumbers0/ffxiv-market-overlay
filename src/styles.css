@@ -459,32 +459,6 @@ body {
   line-height: 1;
 }
 
-/* The first-launch "that's a guess" nudge. Deliberately quiet: the app works
-   without acting on it, so it must not read as an error. */
-.scope-nudge {
-  flex: none;
-  padding: 7px 9px;
-  background: rgba(216, 180, 106, 0.09);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 11px;
-  line-height: 1.45;
-  text-align: left;
-  cursor: pointer;
-}
-
-.scope-nudge:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-.scope-nudge strong {
-  color: var(--accent);
-  font-weight: 600;
-}
-
 /* --- Results -------------------------------------------------------------- */
 
 .results {
