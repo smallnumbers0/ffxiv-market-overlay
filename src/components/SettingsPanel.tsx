@@ -23,6 +23,7 @@ interface SettingsPanelProps {
   board: Board;
   onSettingsChange: (settings: Settings) => void;
   onCatalogRefreshed: () => void;
+  onClose: () => void;
 }
 
 export function SettingsPanel({
@@ -30,6 +31,7 @@ export function SettingsPanel({
   board,
   onSettingsChange,
   onCatalogRefreshed,
+  onClose,
 }: SettingsPanelProps) {
   const [scopes, setScopes] = useState<MarketScopes | null>(null);
   const [scopesError, setScopesError] = useState<AppError | null>(null);
@@ -102,7 +104,24 @@ export function SettingsPanel({
   };
 
   return (
-    <section className="settings">
+    <section className="settings-panel">
+      {/* "Done" rather than an x: the title bar already has an x, and there it
+          hides the whole overlay. Two x's a few pixels apart meaning different
+          things is how you get people closing the wrong one. */}
+      <header className="settings-header">
+        <h2 className="settings-title">Settings</h2>
+        {board.scope && <span className="settings-board">{board.scope}</span>}
+        <button
+          type="button"
+          className="button settings-done"
+          onClick={onClose}
+          title="Close settings (Esc)"
+        >
+          Done
+        </button>
+      </header>
+
+      <div className="settings">
       <Field
         label="Home world or data center"
         hint="Sets this column only. The other columns keep their boards."
@@ -217,6 +236,7 @@ export function SettingsPanel({
       )}
 
       {catalogPath && <p className="settings-path">Catalog: {catalogPath}</p>}
+      </div>
     </section>
   );
 }

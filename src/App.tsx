@@ -210,10 +210,20 @@ export default function App() {
       .catch((cause) => setSettingsError(toAppError(cause)));
   }, []);
 
-  const handleEditBoard = useCallback((id: string) => {
-    setEditingBoard(id);
-    setShowSettings(true);
-  }, []);
+  const handleEditBoard = useCallback(
+    (id: string) => {
+      // The chip is the toggle, so it has to work both ways - opening settings
+      // from it and leaving no way back is what made this feel like a trap.
+      // A different chip switches boards rather than closing.
+      if (showSettings && editing?.id === id) {
+        setShowSettings(false);
+        return;
+      }
+      setEditingBoard(id);
+      setShowSettings(true);
+    },
+    [showSettings, editing],
+  );
 
   const selectItem = useCallback((item: Item) => {
     setSelected(item);
@@ -336,6 +346,7 @@ export default function App() {
             board={editing}
             onSettingsChange={applySettings}
             onCatalogRefreshed={() => void reloadSettings()}
+            onClose={() => setShowSettings(false)}
           />
         ) : (
           <>

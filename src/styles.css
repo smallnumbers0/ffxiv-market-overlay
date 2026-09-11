@@ -719,6 +719,53 @@ body {
 
 /* --- Settings ------------------------------------------------------------- */
 
+.settings-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 10px;
+}
+
+/* Outside the scrolling body on purpose: the way out of this screen must not
+   be something you have to scroll back up to find. */
+.settings-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.settings-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* Which column is being edited - with several boards open, a settings screen
+   that does not say which one it changes is a coin flip. */
+.settings-board {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 2px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+}
+
+.settings-done {
+  margin-left: auto;
+  flex: none;
+}
+
 .settings {
   display: flex;
   flex-direction: column;

@@ -176,7 +176,9 @@ here makes it substantially more useful.
   you can point it anywhere afterwards. Boards are independent: changing one
   never touches another.
 - **Re-point a board** by clicking its name in the strip, which opens settings
-  for that column.
+  for that column. Clicking the same name again closes settings; clicking a
+  different one switches which column you are editing. **Done** in the settings
+  header and `Esc` both close it too.
 - **Close a board** with the **x** on its chip. The last one has none: an
   overlay with no board to show is just an empty window. The boards you leave
   open come back the next time you start the app.
