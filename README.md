@@ -155,8 +155,8 @@ here makes it substantially more useful.
   by how well they match, with earlier and shorter matches first.
 - **Favorite an item** with the heart, either on its row in any list or in the
   header of an open item. Hearted items stay in **Favorites**, which sits with
-  **Recent** under the search box whenever the box is empty - so the things you
-  track are one click away instead of one search. Click a filled heart to
+  **Recent** under the search box - including while an item is open, so either
+  list is always one click away rather than one search. Click a filled heart to
   remove it.
 - **Move** through results with the up and down arrow keys; **open** the
   highlighted item with `Enter`, or just click it. The search box stays on

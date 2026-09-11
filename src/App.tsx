@@ -422,38 +422,52 @@ export default function App() {
                 onToggleFavorite={handleToggleFavorite}
                 emptyMessage={`No marketable item matches "${query.trim()}".`}
               />
-            ) : selected ? (
-              <ComparisonPanel
-                item={selected}
-                boards={boards}
-                prices={prices}
-                favorite={
-                  settings?.favoriteItemIds.includes(selected.itemId) ?? false
-                }
-                onToggleFavorite={() => handleToggleFavorite(selected.itemId)}
-                onRefresh={() => loadPrices(boards, selected.itemId, true)}
-              />
             ) : (
               <>
+                {/* Stays put while an item is open, the same way the search
+                    box does: these two are how you get back to a list, so
+                    hiding them behind the thing you are reading makes the
+                    open item feel like somewhere you have to escape. */}
                 <SavedListTabs
                   active={savedList}
-                  onSelect={setSavedList}
+                  onSelect={(list) => {
+                    setSavedList(list);
+                    // Whichever list you asked for, show it - including when
+                    // you press the tab that is already active.
+                    closePanel();
+                  }}
                   favoriteCount={favorites.length}
                   recentCount={recents.length}
                 />
-                <ResultsList
-                  results={saved}
-                  highlightIndex={highlightIndex}
-                  onHighlight={setHighlightIndex}
-                  onSelect={selectItem}
-                  favorites={settings?.favoriteItemIds ?? []}
-                  onToggleFavorite={handleToggleFavorite}
-                  emptyMessage={
-                    savedList === "favorites"
-                      ? "No favorites yet. Open an item and press the heart to keep it here."
-                      : "Type to search marketable items."
-                  }
-                />
+                {selected ? (
+                  <ComparisonPanel
+                    item={selected}
+                    boards={boards}
+                    prices={prices}
+                    favorite={
+                      settings?.favoriteItemIds.includes(selected.itemId) ??
+                      false
+                    }
+                    onToggleFavorite={() =>
+                      handleToggleFavorite(selected.itemId)
+                    }
+                    onRefresh={() => loadPrices(boards, selected.itemId, true)}
+                  />
+                ) : (
+                  <ResultsList
+                    results={saved}
+                    highlightIndex={highlightIndex}
+                    onHighlight={setHighlightIndex}
+                    onSelect={selectItem}
+                    favorites={settings?.favoriteItemIds ?? []}
+                    onToggleFavorite={handleToggleFavorite}
+                    emptyMessage={
+                      savedList === "favorites"
+                        ? "No favorites yet. Open an item and press the heart to keep it here."
+                        : "Type to search marketable items."
+                    }
+                  />
+                )}
               </>
             )}
           </>
