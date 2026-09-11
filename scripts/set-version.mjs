@@ -105,11 +105,14 @@ if (wrong.length > 0) {
   process.exit(1);
 }
 
+// `git tag -a`, not `git tag`: `--follow-tags` pushes annotated tags only, so
+// a lightweight one leaves the commit pushed and the tag behind - and the
+// release never builds, with nothing on either end saying why.
 console.log(`
 All four agree on ${version}. To cut the release:
 
   git commit -am "Release ${version}"
-  git tag v${version}
+  git tag -a v${version} -m "Release ${version}"
   git push --follow-tags
 
 That tag builds the Windows installer and attaches it to a draft release.`);

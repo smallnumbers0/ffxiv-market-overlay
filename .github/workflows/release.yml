@@ -2,7 +2,8 @@ name: Release
 
 # Tag a commit to cut a release:
 #   npm run set-version 0.1.2
-#   git commit -am "Release 0.1.2" && git tag v0.1.2 && git push --follow-tags
+#   git commit -am "Release 0.1.2"
+#   git tag -a v0.1.2 -m "Release 0.1.2" && git push --follow-tags
 # Or run it by hand from the Actions tab to test the pipeline without tagging.
 on:
   push:
