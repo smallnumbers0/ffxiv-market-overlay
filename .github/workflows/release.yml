@@ -141,6 +141,13 @@ jobs:
             echo "::error::no signature beside ${exe} - was TAURI_SIGNING_PRIVATE_KEY set?"
             exit 1
           fi
+          # GitHub rewrites anything outside [A-Za-z0-9._-] to a dot when it
+          # stores an asset, so the product name's spaces make the download
+          # name differ from the name on disk. Point the manifest at the name
+          # the release will actually serve, or every update check 404s.
+          asset=$(printf '%s' "$exe" | sed 's/[^A-Za-z0-9._-]/./g')
+          echo "on disk: ${exe}"
+          echo "as asset: ${asset}"
           cat > artifacts/latest.json <<JSON
           {
             "version": "${version}",
@@ -148,7 +155,7 @@ jobs:
             "platforms": {
               "windows-x86_64": {
                 "signature": "$(cat "artifacts/${exe}.sig")",
-                "url": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${exe}"
+                "url": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${asset}"
               }
             }
           }
