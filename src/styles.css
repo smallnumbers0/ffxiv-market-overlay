@@ -17,6 +17,10 @@
   --accent: #d8b46a;
   --danger: #ff8f7a;
   --hq: #ffd98a;
+  /* Opaque twin of --bg + --bg-raised, for surfaces the webview paints
+     outside the .app card (the <select> dropdown list) where a translucent
+     color would composite against white instead of the overlay. */
+  --menu-bg: #1a1c23;
   --radius: 10px;
   --row-height: 30px;
 }
@@ -789,6 +793,27 @@ body {
 
 select.input {
   cursor: pointer;
+  /* The dropdown list is drawn by the webview in its own layer, so it gets
+     none of the overlay behind it: --bg-raised composites against the popup's
+     white default and leaves --text as pale grey on white. Name the colors
+     outright, and flag the surface as dark so the popup's own chrome
+     (scrollbar, hover highlight, the disabled placeholder row) follows. */
+  color-scheme: dark;
+}
+
+select.input option,
+select.input optgroup {
+  background-color: var(--menu-bg);
+  color: var(--text);
+}
+
+/* Region - data center headers, same accent as every other header here. */
+select.input optgroup {
+  color: var(--accent);
+}
+
+select.input optgroup option {
+  color: var(--text);
 }
 
 .settings-detail {
