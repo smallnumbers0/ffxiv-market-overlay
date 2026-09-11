@@ -74,16 +74,20 @@ authentication, and this app has no server of its own.
 For people who just want to run it. No build tools, no configuration, no
 account.
 
-1. Go to the project's **[Releases]** page on GitHub.
-2. Download **[FFXIV Market Overlay_0.1.0_x64-setup.exe]**.
-3. Run it.
+### [⬇ Download for Windows][download]
+
+That link always serves the newest release, so it stays correct without being
+edited. If you would rather see what you are getting first, the [Releases]
+page lists every version with its notes.
+
+1. Run the downloaded `FFXIV-Market-Overlay-setup.exe`.
 
    Windows will show **"Windows protected your PC"**, because the installer is
    not code-signed. Click **More info**, then **Run anyway**. This is normal
    for community FFXIV tools and is a statement about the certificate, not
    about the file.
 
-4. Launch **FFXIV Market Overlay** from the Start menu.
+2. Launch **FFXIV Market Overlay** from the Start menu.
 
 That is the whole installation. Specifically:
 
@@ -95,8 +99,12 @@ That is the whole installation. Specifically:
 - **No world to configure before it works.** The app picks your region from
   your system time zone and shows real prices immediately. Narrowing that to
   your own world is a one-click improvement, not a prerequisite - see below.
+- **No returning here for updates.** The app checks for a newer release on
+  launch and offers to install it in place. This applies from 0.1.2 onward;
+  anything installed before that needs one manual download to pick it up.
 
 [Releases]: ../../releases
+[download]: https://github.com/smallnumbers0/ffxiv-market-overlay/releases/latest/download/FFXIV-Market-Overlay-setup.exe
 
 The app keeps its files in:
 

@@ -148,6 +148,11 @@ jobs:
           asset=$(printf '%s' "$exe" | sed 's/[^A-Za-z0-9._-]/./g')
           echo "on disk: ${exe}"
           echo "as asset: ${asset}"
+          # A second copy under a name that never changes, so the README can
+          # link straight at releases/latest/download/... and stay correct
+          # without being edited every release. The versioned asset stays -
+          # the updater manifest points at it by exact name.
+          cp "artifacts/${exe}" "artifacts/FFXIV-Market-Overlay-setup.exe"
           cat > artifacts/latest.json <<JSON
           {
             "version": "${version}",
@@ -165,6 +170,8 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v3
         with:
+          # The glob covers both the versioned installer and the stable-named
+          # copy made above.
           files: |
             artifacts/*-setup.exe
             artifacts/latest.json
