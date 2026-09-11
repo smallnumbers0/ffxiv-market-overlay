@@ -604,7 +604,9 @@ mod tests {
     fn a_first_launch_scope_never_overwrites_a_real_choice() {
         let (_dir, store) = store();
 
-        let config = store.set_guessed_board_scope(FIRST_BOARD, "Aether").unwrap();
+        let config = store
+            .set_guessed_board_scope(FIRST_BOARD, "Aether")
+            .unwrap();
         assert_eq!(scope_of(&config, FIRST_BOARD).as_deref(), Some("Aether"));
 
         // The user picks their own world.
@@ -612,9 +614,7 @@ mod tests {
         assert_eq!(scope_of(&config, FIRST_BOARD).as_deref(), Some("Cactuar"));
 
         // A later startup must not clobber it.
-        let config = store
-            .set_guessed_board_scope(FIRST_BOARD, "Chaos")
-            .unwrap();
+        let config = store.set_guessed_board_scope(FIRST_BOARD, "Chaos").unwrap();
         assert_eq!(scope_of(&config, FIRST_BOARD).as_deref(), Some("Cactuar"));
     }
 
