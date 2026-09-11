@@ -891,7 +891,7 @@ dependencies = [
 
 [[package]]
 name = "ffxiv-market-overlay"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "nucleo-matcher",
  "reqwest 0.12.28",
